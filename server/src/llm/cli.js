@@ -4,15 +4,19 @@
  */
 
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
-const { getModel } = require('./model');
+const { getStructuredModel } = require('./model');
 const { buildPrompt } = require('./prompts');
 const { validateResponse } = require('./validator');
 const { getFallback } = require('./fallbacks');
 
 const args = process.argv.slice(2);
-const langFlagIdx = args.indexOf('--lang');
+const langFlagIdx  = args.indexOf('--lang');
+const benchmarkIdx = args.indexOf('--benchmark');
 const language = langFlagIdx !== -1 ? args[langFlagIdx + 1] || 'en' : 'en';
-const transcript = args.filter((a, i) => i !== langFlagIdx && a !== '--lang' && i !== langFlagIdx + 1).join(' ').replace(/^"|"$/g, '');
+const isBenchmark = benchmarkIdx !== -1;
+const transcript = args
+  .filter((a, i) => i !== langFlagIdx && i !== langFlagIdx + 1 && a !== '--lang' && i !== benchmarkIdx)
+  .join(' ').replace(/^"|"$/g, '');
 
 if (!transcript) {
   console.error('Usage: npm run llm:try "<utterance>" -- --lang id|en');
@@ -27,17 +31,17 @@ async function singleRun() {
   const start = Date.now();
 
   try {
-    const model = getModel();
+    const model = getStructuredModel();
     const prompt = buildPrompt({ transcript, visitor_name: null, arrival_time: null, passive_cue: null, timeOfDay: null, language });
     const chain = prompt.pipe(model);
     const raw = await chain.invoke({}, { signal: controller.signal });
     clearTimeout(timeout);
     const latencyMs = Date.now() - start;
-    const content = raw?.content || '';
-    const parsed = JSON.parse(content);
+    const parsed = typeof raw === 'object' && raw !== null ? raw : JSON.parse((raw?.content || String(raw)).trim());
     const { valid, error } = validateResponse(parsed, language);
     if (!valid) throw new Error(`Validation failed: ${error}`);
-    return { latencyMs, result: { text: Object.values(parsed).join(' '), parts: Object.values(parsed), _fallback: false } };
+    const parts = [parsed.validate, parsed.reassure, parsed.redirect].filter(Boolean);
+    return { latencyMs, result: { text: parts.join(' '), parts, _fallback: false } };
   } catch (err) {
     clearTimeout(timeout);
     const latencyMs = Date.now() - start;
@@ -51,8 +55,7 @@ async function singleRun() {
 }
 
 async function main() {
-  const RUNS = parseInt(process.env.LLM_BENCHMARK_RUNS || '30', 10);
-  const isBenchmark = process.env.LLM_BENCHMARK === 'true';
+  const RUNS = isBenchmark ? 30 : 1;
 
   if (isBenchmark) {
     console.log(`\nRunning ${RUNS} benchmark runs for: "${transcript}" [${language}]\n`);

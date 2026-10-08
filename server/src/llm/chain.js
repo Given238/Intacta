@@ -3,7 +3,7 @@
  * Enforces 1.2s hard timeout via AbortController.
  */
 
-const { getModel } = require('./model');
+const { getModel, getStructuredModel } = require('./model');
 const { buildPrompt } = require('./prompts');
 const { validateResponse } = require('./validator');
 const { getFallback } = require('./fallbacks');
@@ -32,7 +32,7 @@ async function runChain(input) {
     const prompt = buildPrompt({ transcript, visitor_name, arrival_time, passive_cue, timeOfDay, language });
 
     // First attempt
-    const result = await callLLM(model, prompt, language, controller.signal);
+    const result = await callLLM(prompt, language, controller.signal);
     clearTimeout(timeout);
     return result;
   } catch (err) {
@@ -44,9 +44,7 @@ async function runChain(input) {
 
     // Retry once
     try {
-      const model = getModel();
-      const prompt = buildPrompt({ transcript, visitor_name, arrival_time, passive_cue, timeOfDay, language });
-      const result = await callLLM(model, prompt, language, undefined);
+      const result = await callLLM(prompt, language, undefined);
       return result;
     } catch {
       return { ...getFallback(transcript, language), _fallback: true };
@@ -54,17 +52,14 @@ async function runChain(input) {
   }
 }
 
-async function callLLM(model, prompt, language, signal) {
+async function callLLM(prompt, language, signal) {
+  const model = getStructuredModel();
   const chain = prompt.pipe(model);
   const raw = await chain.invoke({}, { signal });
-  const content = raw?.content || '';
-
-  let parsed;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error(`Invalid JSON from LLM: ${content.slice(0, 100)}`);
-  }
+  // withStructuredOutput returns the object directly; otherwise parse from content
+  const parsed = typeof raw === 'object' && raw !== null
+    ? raw
+    : JSON.parse((raw?.content || String(raw)).trim());
 
   const { valid, error } = validateResponse(parsed, language);
   if (!valid) {
