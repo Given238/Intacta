@@ -1,0 +1,49 @@
+# render.yaml — Railway/Render deployment manifest
+# Reference: https://render.com/docs/yaml-spec
+
+services:
+  - type: web
+    name: intacta-server
+    env: node
+    region: singapore  # close to Indonesia for low latency
+    plan: starter
+    numInstances: 1
+    buildCommand: npm ci
+    startCommand: node src/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 24h
+      - key: CLIENT_ORIGIN
+        # Replace with your deployed frontend URL, e.g. https://yourapp.vercel.app
+        sync: false
+      - key: API_ORIGIN
+        # Replace with this service's URL after deploy (auto-set by Render)
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+
+# PostgreSQL database (uncomment and configure to provision via Render)
+# databases:
+#   - name: intacta-db
+#     plan: starter
+#     databaseName: intacta
+#     ipAllowList: []
