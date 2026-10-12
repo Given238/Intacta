@@ -61,7 +61,10 @@ CREATE INDEX IF NOT EXISTS idx_daily_contexts_patient_id ON daily_contexts(patie
 CREATE INDEX IF NOT EXISTS idx_daily_contexts_date       ON daily_contexts(context_date);
 
 -- ── Routines ─────────────────────────────────────────────────────────────────
-CREATE TYPE routine_category AS ENUM ('meal', 'medication', 'hygiene', 'other');
+DO $$ BEGIN
+    CREATE TYPE routine_category AS ENUM ('meal', 'medication', 'hygiene', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS routines (
     id           SERIAL PRIMARY KEY,

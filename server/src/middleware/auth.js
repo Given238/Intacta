@@ -15,4 +15,11 @@ function authenticate(req, res, next) {
   }
 }
 
+/** For public routes: no header → anonymous; a header that is present must be valid. */
+function optionalAuthenticate(req, res, next) {
+  if (!req.headers.authorization) return next();
+  return authenticate(req, res, next);
+}
+
 module.exports = authenticate;
+module.exports.optionalAuthenticate = optionalAuthenticate;

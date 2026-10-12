@@ -15,6 +15,10 @@ async function login(req, res) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
   const caregiver = result.rows[0];
+  // Caregivers created by code-only pairing have no password yet
+  if (!caregiver.password_hash) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
   const valid = await bcrypt.compare(password, caregiver.password_hash);
   if (!valid) {
     return res.status(401).json({ error: 'Invalid credentials' });

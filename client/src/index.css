@@ -1,0 +1,34 @@
+/* Self-hosted fonts (offline-capable) */
+@import '@fontsource/baloo-da-2/400.css';
+@import '@fontsource/baloo-da-2/800.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/800.css';
+
+@import "tailwindcss";
+
+@theme {
+  --color-intacta-dark:   #05668d;
+  --color-intacta-mid:    #137ba6;
+  --color-intacta-panel:  #234053;
+  --color-intacta-text:   #c6d6df;
+  --color-intacta-bar:    #ebebeb;
+  --font-family-brand:    "Baloo Da 2", cursive;
+  --font-family-ui:      "Inter", system-ui, sans-serif;
+}
+
+/* ── Reset / base ── */
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: #7B4A8C; /* approximates mesh gradient dark center */ font-family: var(--font-family-ui); }
+html, body, #root { width: 100%; height: 100%; overflow: hidden; }
+
+/* ── Waveform bars — SQUARE corners as per Figma ── */
+.waveform-bar {
+  background: var(--color-intacta-bar);
+  flex-shrink: 0;
+  /* no border-radius — square corners required */
+}
+
+/* ── Terminal reply: a replacing reply fades in over the previous one ── */
+@keyframes replyIn { from { opacity: 0; } to { opacity: 1; } }
+.reply-in { animation: replyIn 250ms ease; }
+@media (prefers-reduced-motion: reduce) { .reply-in { animation: none; } }

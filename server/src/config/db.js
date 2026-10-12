@@ -1,16 +1,37 @@
-require('dotenv').config();
-const { Pool } = require('pg');
+'use strict';
 
-const pool = new Pool({
-  host:     process.env.DB_HOST,
-  port:     parseInt(process.env.DB_PORT, 10),
-  database: process.env.DB_NAME,
-  user:     process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
+const { Kysely, PostgresDialect } = require('kysely');
+const { Pool }    = require('pg');
+const env         = require('./env');
+
+/** @type {import('pg').PoolConfig} */
+const poolConfig = (() => {
+  if (env.DATABASE_URL) {
+    const cfg = { connectionString: env.DATABASE_URL };
+    if (env.DATABASE_SSL) {
+      cfg.ssl = { rejectUnauthorized: false };
+    }
+    return cfg;
+  }
+  // Fallback: individual connection parts
+  return {
+    host:     env.DB_HOST,
+    port:     parseInt(env.DB_PORT, 10),
+    database: env.DB_NAME,
+    user:     env.DB_USER,
+    password: env.DB_PASSWORD,
+    ...(env.DATABASE_SSL ? { ssl: { rejectUnauthorized: false } } : {}),
+  };
+})();
+
+const rawPool = new Pool(poolConfig);
+
+rawPool.on('error', (err) => {
+  console.error('[db] Unexpected PostgreSQL pool error:', err.message);
 });
 
-pool.on('error', (err) => {
-  console.error('Unexpected PostgreSQL pool error:', err);
-});
+// Raw pg pool: query.js, migrate.js, seed.js and /health use pool.query / pool.connect.
+// Kysely shares the same pool for typed queries.
+rawPool.db = new Kysely({ dialect: new PostgresDialect({ pool: rawPool }) });
 
-module.exports = pool;
+module.exports = rawPool;

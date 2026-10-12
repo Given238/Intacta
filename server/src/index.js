@@ -5,7 +5,11 @@ const cors       = require('cors');
 const { Server } = require('socket.io');
 
 const authRoutes      = require('./routes/auth');
-const contextRoutes   = require('./routes/context');
+const contextItemsRoutes = require('./routes/contextItems');
+const settingsRoutes  = require('./routes/settings');
+const caregiverRoutes = require('./routes/caregiver');
+const patientRoutes   = require('./routes/patient');
+const deviceRoutes    = require('./routes/device');
 const routinesRoutes  = require('./routes/routines');
 const respondRoutes   = require('./routes/respond');
 const devicesRoutes  = require('./routes/devices');
@@ -39,10 +43,14 @@ app.get('/health', async (req, res) => {
 });
 
 app.use('/api/auth',     authRoutes);
-app.use('/api/context',  contextRoutes);
+app.use('/api/context-items', contextItemsRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/caregiver', caregiverRoutes);
 app.use('/api/routines', routinesRoutes);
 app.use('/api/respond',  respondRoutes);
 app.use('/api/devices',  devicesRoutes);
+app.use('/api/device',   deviceRoutes);
+app.use('/api',          patientRoutes);
 
 app.use((req, res) => { res.status(404).json({ error: 'Not found' }); });
 app.use((err, req, res, next) => {

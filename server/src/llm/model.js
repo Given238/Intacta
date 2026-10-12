@@ -12,7 +12,7 @@ const RESPONSE_SCHEMA = z.object({
 function getModel() {
   if (!_model) {
     _model = new ChatGoogleGenerativeAI({
-      model: 'gemini-2.5-flash-lite',
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
       apiKey: process.env.GEMINI_API_KEY,
       temperature: 0.4,
       maxOutputTokens: 256,

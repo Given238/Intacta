@@ -55,35 +55,61 @@ ALL patient-facing LLM output:
 
 ## Pairing Flow (code-based, replaces QR)
 1. Terminal "Caregiver mode → Enter" calls `POST /api/devices/register` → `{device_id, device_token, code}`. Code is 6 chars (shown like `dev-d4y`), TTL 10 min, single use, regenerates on expiry.
-2. Caregiver enters the code on the phone → `POST /api/pair {code}` (rate-limited 5/min/IP) → returns a caregiver JWT scoped to that patient and links the device.
-3. Server emits `device:paired` to the terminal, which joins `patient:{id}` using its device_token.
+2. Caregiver enters the code on the phone → `POST /api/devices/pair {code}`: PUBLIC (no login), rate-limited 5/min/IP.
+   No Authorization header → a new caregiver (email/password NULL) + patient are created (or the device's existing patient is kept).
+   With a caregiver JWT ("Pair New Tablet") → the device links to that caregiver's patient. A bad JWT → 401.
+   Returns `{success, token, patient_id, language, device_name}`; token = caregiver JWT {caregiverId, patientId}. Audited `device.pair`.
+   Errors `{error, code}`: 400 `code_required`/`invalid_code`, 409 `code_used`, 410 `code_expired`, 429 `rate_limited`.
+   Codes are stored as SHA-256 (`devices.pairing_code`) and marked used via `devices.code_used_at` (never cleared on pair).
+3. Server moves the terminal's `device:{id}` sockets into `patient:{id}` and emits `device:paired`, `context:sync`, `settings:sync` to it. The terminal keeps the device_token from step 1.
+Logic lives in `server/src/services/pairingService.js`.
 Known limitation (state it in the pitch): code-only caregiver auth is a hackathon simplification; production adds caregiver login.
 
 ## Socket.IO Contract (keep in sync)
-- caregiver → server: `context:update` {visitor_name, arrival_time, passive_cue}
-- server → terminal: `context:sync` {payload, updated_at}
+- server → terminal: `context:sync` {payload: {patient_name, language, daily[{id,text}], permanent[{id,text}]}, updated_at}
+  (non-volatile; on terminal connect/pair and after every context-items mutation; context is written via REST only)
+- server → terminal: `settings:sync` {payload: {strict_validation, max_speech_seconds, voice_id, playback_speed, volume_db}, updated_at}
+  (non-volatile; on terminal connect/pair and after PUT /api/settings)
 - terminal → server: `utterance:submit` {transcript}
 - server → terminal: `response:ready` {text, parts[], audio_url?}
 - server → portal: `interaction:new` {transcript, ai_response, source, created_at}
 - server → terminal: `routine:trigger` {audio_script, category}
-- caregiver → server → terminal: `broadcast:message` {text}
-- server → terminal: `device:paired` {patient_id}
-- terminal → server: `device:status` {online, battery, power}
-Rooms: `patient:{id}`. JWT on caregiver sockets; device_token on terminal sockets.
+- caregiver → server: `broadcast:message` {patientId, text ≤200} → terminal `broadcast:message` {text, created_at}
+  (+ `interaction:new` source=broadcast; logged + audited; ack {success})
+- caregiver → server: `voice:test` {patientId} → terminal `voice:test` {text, language, voice_id, playback_speed, volume_db}; ack {success}
+- server → terminal: `device:paired` {patient_id, language}
+- terminal → server: `device:status` {online, battery 0-100, power} → portal `device:status` {device_id, online, battery, power}
+Rooms: `device:{id}` (terminal, from connect) and `patient:{id}`. JWT on caregiver sockets (`auth.token`);
+device_token on terminal sockets (`auth.device_token`, unpaired devices may connect). Caregiver events check patient ownership.
 
-## Figma (source of truth where it exists)
-File key: `mIwuaN6ddcgRRLwa9TyMTp`
-- Patient terminal: node `1:2` (home) and `62:123` (pairing-code popup). Landscape 1194x834 (iPad Pro 11"). Scale with vw/vh, never fixed px.
-- Auth screen: node `62:171` (mobile, 402x874).
-- NOT designed (build from the spec using tokens extracted from the frames above; portal accent #0D6C8C): portal Patient / Context / Routines / Settings, terminal clock mode, response view, visitor banner.
-- Load the figma-design-to-code skill before every `get_design_context` call. Always fetch the screenshot.
-- The 12-bar waveform in the terminal frame is a live voice visualizer: drive bar heights from mic amplitude (listening) and TTS amplitude (speaking).
+## REST Contract (keep in sync)
+Caregiver JWT (`Authorization: Bearer`), ownership checked on every route (404 unknown patient, 403 another caregiver's):
+- `GET /api/context-items?patientId&scope=daily|permanent` → {items} (daily = today only) · `POST` {patientId, scope, text} → 201
+  · `PUT /:id` {text} · `DELETE /:id` → 204. Mutations audit + emit `context:sync`.
+- `GET /api/settings?patientId` → {settings} (defaults if unset) · `PUT` {patientId, ...any setting} → audit + `settings:sync`.
+  Ranges: max_speech_seconds 0-15 (default 10), playback_speed 0.85-1.0 (1.0), volume_db 60-70 (65).
+- `GET/POST /api/routines`, `GET/PUT/DELETE /api/routines/:id`: also take `title` and `days` (0=Sun..6=Sat, default all).
+- `GET /api/patient/status?patientId` → {status: {patient_id, patient_name, language, device: {id, name, online, battery, last_seen_at} | null}}
+- `GET /api/interactions?patientId&limit=20(≤100)&before=<id>` → {interactions (newest first), next_before}
+Terminal (`x-device-token`): `GET /api/device/context` → {context: {patient_name, daily, permanent}, language, updated_at};
+`GET /api/device/settings` → {settings}; `POST /api/respond` {transcript, source}.
+Word cap for LLM output = min(25, round(max_speech_seconds × 2.5)); 0 → 25. Enforced on top of the 25-word validator.
 
-## UI Rules
-- Terminal: ≥7:1 contrast, ≥32pt text, no touch needed during normal use (only pairing and the one-time Start gate).
-- Portal: mobile-first at 390px. Bottom tab bar: Patient, Routines, Context, Settings.
-- Use placeholder data (Ibu Sari, visitor "Budi", arrival "11:00 AM", cue "Budi sedang membeli makanan kesukaan Ibu") until wired; mark with `// TODO(wire)`.
-- Build screen by screen; one commit per screen.
+## Figma (source of truth) — file key mIwuaN6ddcgRRLwa9TyMTp
+Always: get_design_context + get_screenshot for the node before building. Clip every header to its frame width
+(the header rectangle in iPhone frames is 1194 wide by mistake). Export logos as SVG with download_assets; never substitute icons.
+- Terminal: 1:2 (home), 62:123 (code popup). Logo group 31:4. 1194x834 landscape, scale with vw/vh.
+- Portal (iPhone 17, 402x874, build at 390-402px): Auth 62:171 | Home 29:42 | Routines 60:30 | Context 60:60 |
+  Patient 60:120 | Settings 60:90
+- Navigation: BOTTOM TAB BAR (Home, Patient, Routines, Context, Settings), not designed in Figma: build it from the header tokens.
+  Fixed to the bottom, ~64px + safe-area-inset-bottom, active tab highlighted, Lucide icons + labels. The Menu drawer frame 29:94 is NOT used.
+  Scroll areas need bottom padding for the bar. Hide the bar or keep inputs visible when the keyboard is open (Context inputs, Speak Now).
+- Build ONE screen per session; commit after each; update PROGRESS.md.
+
+## Context model (follows Figma, replaces visitor_name/arrival_time/passive_cue)
+- context_items(id, patient_id, scope 'daily'|'permanent', text <=200 chars, context_date NULL for permanent, created_at)
+- The LLM prompt receives all of today's daily items + all permanent items (FR-4.3.5 fallback when none).
+- Server always enforces the clinical guardrails regardless of the "Strict Validation" toggle.
 
 ## Language (EN / ID)
 - `patients.language` controls LLM output language, TTS voice, terminal static strings, and the banned-phrase list.
@@ -94,7 +120,9 @@ File key: `mIwuaN6ddcgRRLwa9TyMTp`
 - Discard audio buffers right after transcription (FR-4.2.5).
 - dB SPL targets are implemented as calibrated output gain + `noiseSuppression`/`echoCancellation`; never claim measured dB.
 - Browsers require one user gesture to unlock audio/mic: the terminal has a one-time "Start" gate, then runs kiosk-style (HTTPS required).
-- Keep the hidden typed-utterance input (Ctrl+Shift+T) and the debug overlay (Ctrl+Shift+D) on the terminal; typed input is the demo fallback.
+- Keep the hidden typed-utterance input (backtick ` toggles, Esc closes) and the debug overlay (Shift+` / ~ toggles) on the terminal; typed input is the demo fallback.
+  Keys are ignored while an input/textarea is focused. `?dev=1` in the URL shows both permanently (tablet has no keyboard).
+  (Ctrl+Shift+T / Ctrl+Shift+D are not used: Chrome intercepts them.)
 - STT sits behind an `stt` interface so Web Speech API can be swapped for server STT.
 
 ## Deployment
@@ -109,15 +137,17 @@ File key: `mIwuaN6ddcgRRLwa9TyMTp`
 ## Commands
 - `npm run dev`: Express + Vite concurrently
 - `npm run dev:backend` (nodemon src/index.js) / `npm run dev:frontend` (vite)
-- `npm test`: Jest unit + integration (includes the guardrail suite)
+- `npm test`: Jest unit + integration (includes the guardrail suite) in `server/`; Vitest unit tests in `client/` (terminal reply lifecycle, contrast)
 - `npm run db:migrate` / `npm run db:seed`
 - `npm run llm:try "<utterance>" --lang id|en`: run the LLM pipeline from the CLI with latency
 
 ## Database Schema Keys
-- `caregivers`, `patients` (language: id|en; linked to caregiver)
-- `devices`: id, patient_id, token_hash, pairing_code, code_expires_at, last_seen_at, battery, is_online
-- `daily_contexts`: patient_id, visitor_name, arrival_time (VARCHAR, validated), passive_cue (TEXT), updated_at
-- `routines`: id, patient_id, trigger_time (TIME), category (ENUM meal|medication|hygiene), audio_script, is_active
+- `caregivers` (email + password_hash nullable since migration 004: code-paired caregivers have no login), `patients` (language: id|en; linked to caregiver)
+- `devices`: id, device_uid, name (e.g. "Tablet - Ruang Tamu"), patient_id, token_hash, pairing_code (SHA-256), code_expires_at, code_used_at, last_seen_at, battery, is_online
+- `context_items`: id, patient_id, scope (daily|permanent), text (≤200), context_date (NULL for permanent), created_at
+  (`daily_contexts` is legacy: migration 003 copies today's rows over; no code reads it)
+- `routines`: id, patient_id, title, days (SMALLINT[] 0=Sun..6=Sat), trigger_time (TIME), category (ENUM meal|medication|hygiene|other), audio_script, display_text, is_active
+- `patient_settings`: patient_id (PK), strict_validation, max_speech_seconds, voice_id, playback_speed, volume_db, updated_at
 - `interaction_logs`: id, patient_id, transcript, ai_response, source (voice|typed|routine|broadcast), latency_ms, created_at
 - `audit_logs`: id, caregiver_id, action, payload (JSONB), created_at (ISO-8601)
 
@@ -127,3 +157,9 @@ File key: `mIwuaN6ddcgRRLwa9TyMTp`
 - STT ≤800ms after utterance end (FR-4.2.2); TTS first byte ≤500ms (FR-4.4.1)
 - Mic never captures during SPEAKING or the 3.0s COOLDOWN
 - Terminal contrast ≥7:1, font ≥32pt; returns to clock mode 60s after audio ends
+
+## Progress Log Rule (handoff)
+- Keep /PROGRESS.md up to date: current phase, what is DONE, what is IN PROGRESS (file paths), what is NEXT, known bugs.
+- Update it after EVERY completed feature or screen, and before ending any session.
+- Commit often (small commits). Never leave a feature half-written and uncommitted.
+- When starting a session, read PROGRESS.md first and continue from "NEXT".

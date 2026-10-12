@@ -1,0 +1,39 @@
+/*
+ * Portal typography (Figma 29:42). The whole portal is Inter; only the "Intacta" wordmark is Baloo Da 2.
+ * Use these classes for family + weight; size and color stay as Tailwind utilities.
+ * Weights are loaded in main.jsx (@fontsource/inter 300-800, baloo-da-2 800).
+ */
+.portal {
+  font-family: "Inter", sans-serif;
+}
+
+.text-wordmark {
+  font-family: "Baloo Da 2", sans-serif;
+  font-weight: 800;
+}
+
+.text-display,
+.text-title-bold,
+.text-title-semibold,
+.text-body-medium,
+.text-body-regular,
+.text-body-light {
+  font-family: "Inter", sans-serif;
+}
+
+.text-display        { font-weight: 800; }
+.text-title-bold     { font-weight: 700; }
+.text-title-semibold { font-weight: 600; }
+.text-body-medium    { font-weight: 500; }
+.text-body-regular   { font-weight: 400; }
+.text-body-light     { font-weight: 300; }
+
+/* Settings sliders (Figma 107:1570): thin white track, light-grey round handles */
+.portal-range::-webkit-slider-runnable-track { height: 2px; background: #ffffff; border-radius: 1px; }
+.portal-range::-moz-range-track { height: 2px; background: #ffffff; border-radius: 1px; }
+.portal-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin-top: -6px; border-radius: 50%; background: #d9d9d9; border: 0;
+}
+.portal-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #d9d9d9; border: 0; }
+.portal-range:focus-visible { outline: 2px solid #54aed3; outline-offset: 4px; border-radius: 4px; }

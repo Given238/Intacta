@@ -1,0 +1,275 @@
+{
+  "brand": "Intacta",
+  "tagline": "asisten perawatan cerdas untuk demensia",
+  "caregiverMode": "Mode Caregiver",
+  "enter": "Masuk",
+  "authCode": "Kode Autentikasi",
+  "thisIsYourCode": "Ini kode Anda",
+  "useThisToConnect": "Gunakan ini untuk terhubung dengan sisi Caregiver",
+  "greeting": "Hai, saya Intacta dan di sini untuk membantu Anda.",
+  "start": "Mulai",
+  "startHint": "Ketuk di mana saja untuk memulai",
+  "pairingTitle": "Menunggu caregiver…",
+  "pairingExpired": "Kode kedaluwarsa — ketuk Mode Caregiver untuk memperbarui",
+  "tapToClose": "Ketuk untuk menutup",
+  "visitorComing": "Pengunjung akan datang",
+  "visitorName": "{{name}}",
+  "arrivingAt": "datang pukul {{time}}",
+  "clock": {
+    "goodMorning": "Selamat pagi",
+    "goodAfternoon": "Selamat siang",
+    "goodEvening": "Selamat malam"
+  },
+  "response": {
+    "listening": "Mendengarkan…",
+    "processing": "Memikirkan…",
+    "speaking": "Berbicara…",
+    "noText": "Saya di sini bersama Anda."
+  },
+  "typedHint": "Tekan ` untuk berbicara",
+  "notRegistered": "Terminal belum terdaftar, ketuk Kode Autentikasi",
+  "error": "Terjadi kesalahan. Silakan coba lagi.",
+  "errorBoundary": {
+    "message": "Terjadi kesalahan pada layar ini.",
+    "home": "Kembali ke beranda"
+  },
+  "portal": {
+    "pair": {
+      "back": "kembali ke halaman pasien",
+      "title": "Autentikasi",
+      "subtitle": "hubungkan dengan pasien",
+      "enterCode": "Masukkan kode:",
+      "placeholder": "XXX - XXX",
+      "confirm": "Konfirmasi",
+      "errors": {
+        "invalid": "Kode tidak valid. Periksa kode di tablet.",
+        "expired": "Kode sudah kedaluwarsa. Ambil kode baru di tablet.",
+        "used": "Kode sudah digunakan. Ambil kode baru di tablet.",
+        "rateLimited": "Terlalu banyak percobaan. Tunggu satu menit lalu coba lagi.",
+        "network": "Tidak dapat terhubung ke server. Periksa koneksi Anda.",
+        "generic": "Terjadi kesalahan. Silakan coba lagi.",
+        "sessionExpired": "Sesi Anda sudah berakhir. Masukkan kode lagi."
+      },
+      "backToSettings": "kembali ke pengaturan",
+      "subtitleLink": "hubungkan tablet lain"
+    },
+    "tabs": {
+      "label": "Navigasi portal",
+      "home": "Beranda",
+      "patient": "Pasien",
+      "routines": "Rutinitas",
+      "context": "Konteks",
+      "settings": "Pengaturan"
+    },
+    "comingSoon": "Segera hadir",
+    "home": {
+      "loading": "Memuat ringkasan hari ini…",
+      "error": "Ringkasan hari ini tidak dapat dimuat. Periksa koneksi Anda lalu coba lagi.",
+      "retry": "Coba lagi",
+      "caregiver": "Caregiver",
+      "shift": "Shift: {{name}}",
+      "patient": "Pasien",
+      "fallbackCaregiver": "Caregiver",
+      "fallbackPatient": "Pasien",
+      "dailyContext": "Konteks harian",
+      "noNotes": "Belum ada catatan untuk hari ini",
+      "schedule": "Jadwal",
+      "noRoutines": "Belum ada rutinitas terjadwal",
+      "category": {
+        "meal": "Makan",
+        "medication": "Obat",
+        "hygiene": "Kebersihan",
+        "other": "Rutinitas"
+      },
+      "am": "A.M",
+      "pm": "P.M"
+    },
+    "common": {
+      "loading": "Memuat…",
+      "loadError": "Halaman ini tidak dapat dimuat. Periksa koneksi Anda lalu coba lagi.",
+      "retry": "Coba lagi",
+      "cancel": "Batal",
+      "save": "Simpan",
+      "saved": "Tersimpan",
+      "saving": "Menyimpan…",
+      "close": "Tutup"
+    },
+    "context": {
+      "daily": {
+        "title": "Konteks Harian",
+        "placeholder": "Tambah Konteks Harian....",
+        "empty": "Belum ada catatan untuk hari ini"
+      },
+      "permanent": {
+        "title": "Konteks Permanen",
+        "placeholder": "Tambah Konteks Permanen....",
+        "empty": "Belum ada catatan permanen"
+      },
+      "add": "Tambah catatan",
+      "delete": "Hapus",
+      "deleteItem": "Hapus catatan: {{text}}",
+      "addFailed": "Catatan gagal disimpan. Silakan coba lagi.",
+      "deleteFailed": "Catatan gagal dihapus dan sudah dikembalikan.",
+      "errors": {
+        "empty": "Tulis catatan terlebih dahulu.",
+        "tooLong": "Maksimal {{max}} karakter.",
+        "duplicate": "Catatan ini sudah ada di daftar."
+      }
+    },
+    "patient": {
+      "statusTitle": "Status Pasien",
+      "online": "Online",
+      "offline": "Offline",
+      "noDevice": "Belum ada tablet yang terhubung",
+      "battery": "Baterai tablet {{percent}}%",
+      "batteryUnknown": "Baterai tablet tidak diketahui",
+      "speakNow": "Bicara Sekarang....",
+      "listening": "Mendengarkan…",
+      "micStart": "Diktekan pesan",
+      "micStop": "Hentikan dikte",
+      "micUnsupported": "Input suara tidak didukung di browser ini",
+      "micError": "Mikrofon tidak dapat digunakan. Anda bisa mengetik pesannya.",
+      "send": "Kirim ke tablet",
+      "sent": "Terkirim ke tablet",
+      "sendFailed": "Pesan gagal dikirim. Silakan coba lagi.",
+      "sendOffline": "Tidak terhubung. Periksa koneksi Anda lalu coba lagi.",
+      "tooLong": "Maksimal {{max}} karakter.",
+      "logsTitle": "Log Interaksi",
+      "logsEmpty": "Belum ada interaksi",
+      "logsError": "Log interaksi tidak dapat dimuat.",
+      "logsMoreError": "Entri lama gagal dimuat.",
+      "loadOlder": "Muat yang lama",
+      "today": "Hari ini",
+      "yesterday": "Kemarin",
+      "youSent": "Anda mengirim",
+      "patientSaid": "Pasien berkata",
+      "intactaReplied": "Intacta menjawab",
+      "source": {
+        "voice": "Suara",
+        "typed": "Ketik",
+        "broadcast": "Pesan",
+        "routine": "Rutinitas"
+      },
+      "playClip": "Putar rekaman",
+      "pauseClip": "Jeda rekaman",
+      "clipExpired": "Rekaman kedaluwarsa",
+      "clipError": "Gagal diputar"
+    },
+    "routines": {
+      "title": "Rutinitas Harian",
+      "add": "Tambah rutinitas",
+      "empty": "Belum ada rutinitas terjadwal",
+      "active": "aktif:",
+      "next": "berikutnya:",
+      "nextAt": "{{title}} pukul {{time}}",
+      "noneToday": "tidak ada lagi hari ini",
+      "enableAll": "aktifkan semua\nrutinitas",
+      "groups": {
+        "morning": "Pagi",
+        "afternoon": "Siang",
+        "evening": "Malam"
+      },
+      "dayLetters": [
+        "M",
+        "S",
+        "S",
+        "R",
+        "K",
+        "J",
+        "S"
+      ],
+      "dayNames": [
+        "Minggu",
+        "Senin",
+        "Selasa",
+        "Rabu",
+        "Kamis",
+        "Jumat",
+        "Sabtu"
+      ],
+      "toggle": "Nyalakan atau matikan {{title}}",
+      "edit": "Ubah {{title}}",
+      "deleteItem": "Hapus {{title}}",
+      "daysFor": "Hari untuk {{title}}",
+      "delete": "Hapus",
+      "deleteTitle": "Hapus rutinitas?",
+      "deleteBody": "\"{{title}}\" tidak akan diputar lagi di tablet.",
+      "saveFailed": "Perubahan gagal disimpan dan sudah dibatalkan.",
+      "toggleAllFailed": "Beberapa rutinitas gagal diperbarui.",
+      "createFailed": "Rutinitas gagal ditambahkan. Silakan coba lagi.",
+      "deleteFailed": "Rutinitas gagal dihapus dan sudah dikembalikan.",
+      "oneDayMin": "Pilih minimal satu hari.",
+      "addTitle": "Rutinitas baru",
+      "editTitle": "Ubah rutinitas",
+      "fields": {
+        "title": "Judul",
+        "time": "Waktu",
+        "days": "Hari",
+        "category": "Kategori",
+        "categoryPick": "Pilih kategori",
+        "script": "Yang akan diucapkan tablet",
+        "scriptHint": "mis. Sudah waktunya makan siang. Ayo ke meja bersama."
+      },
+      "errors": {
+        "title": "Isi judul.",
+        "titleLong": "Judul maksimal 100 karakter.",
+        "time": "Isi waktu yang valid (JJ:MM).",
+        "category": "Pilih kategori.",
+        "script": "Isi kalimat yang akan diucapkan tablet.",
+        "scriptLong": "Maksimal 1000 karakter."
+      }
+    },
+    "settings": {
+      "saveFailed": "Gagal menyimpan. Nilai sebelumnya dikembalikan.",
+      "seconds": "{{n}} dtk",
+      "device": {
+        "title": "Pemasangan Perangkat",
+        "none": "Belum ada tablet",
+        "online": "Online",
+        "offline": "Offline",
+        "pairNew": "Pasang Tablet Baru"
+      },
+      "rules": {
+        "title": "Aturan Klinis",
+        "strict": "Protokol Validasi Ketat",
+        "maxSpeech": "Durasi Bicara Maksimal",
+        "noLimit": "Tanpa batas",
+        "offTitle": "Matikan validasi ketat?",
+        "offConfirm": "Matikan",
+        "offBody": "Intacta akan memeriksa jawaban dengan kurang ketat. Pertanyaan, tes ingatan, koreksi, dan jawaban tidak aman lainnya tetap diblokir apa pun pengaturan ini."
+      },
+      "audio": {
+        "title": "Pengaturan audio",
+        "voiceLabel": "Suara tablet",
+        "voiceDefault": "Suara bawaan",
+        "voiceCustom": "Suara khusus",
+        "voice": {
+          "id": "Suara Indonesia",
+          "en": "Suara Inggris"
+        },
+        "speed": "Kecepatan putar",
+        "volume": "Volume",
+        "test": "Tes Suara",
+        "testSent": "Terkirim ke tablet",
+        "testLocal": "Tablet offline: diputar di ponsel ini",
+        "testFailed": "Tes suara gagal dijalankan.",
+        "testPhrase": "Halo. Seperti inilah suara saya."
+      },
+      "account": {
+        "title": "Akun & Keamanan",
+        "profile": "Profil caregiver",
+        "name": "Nama:",
+        "email": "Email:",
+        "logout": "Keluar",
+        "logoutTitle": "Keluar?",
+        "logoutBody": "Untuk masuk lagi Anda memerlukan kode baru dari tablet (Mode Caregiver → Kode Autentikasi).",
+        "errors": {
+          "name": "Isi nama.",
+          "email": "Isi alamat email yang valid.",
+          "emailTaken": "Email itu sudah dipakai akun lain."
+        }
+      },
+      "recordingNotice": "Rekaman suara disimpan untuk waktu terbatas, dan Anda dapat menghapusnya."
+    }
+  }
+}

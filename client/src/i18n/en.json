@@ -1,0 +1,275 @@
+{
+  "brand": "Intacta",
+  "tagline": "smart care for dementia",
+  "caregiverMode": "Caregiver mode",
+  "enter": "Enter",
+  "authCode": "Authentication code",
+  "thisIsYourCode": "This is your code",
+  "useThisToConnect": "Use this to connect with Caregiver's side",
+  "greeting": "Hi, I’m Intacta and here to help you.",
+  "start": "Start",
+  "startHint": "Tap anywhere to begin",
+  "pairingTitle": "Waiting for caregiver…",
+  "pairingExpired": "Code expired — tap Caregiver mode to regenerate",
+  "tapToClose": "Tap to close",
+  "visitorComing": "Visitor coming",
+  "visitorName": "{{name}}",
+  "arrivingAt": "arriving at {{time}}",
+  "clock": {
+    "goodMorning": "Good morning",
+    "goodAfternoon": "Good afternoon",
+    "goodEvening": "Good evening"
+  },
+  "response": {
+    "listening": "Listening…",
+    "processing": "Thinking…",
+    "speaking": "Speaking…",
+    "noText": "I am here with you."
+  },
+  "typedHint": "Press ` to speak",
+  "notRegistered": "Terminal not registered, tap Authentication code",
+  "error": "Something went wrong. Please try again.",
+  "errorBoundary": {
+    "message": "Something went wrong on this screen.",
+    "home": "Back to home"
+  },
+  "portal": {
+    "pair": {
+      "back": "back to patient page",
+      "title": "Authentication",
+      "subtitle": "connect with the patient",
+      "enterCode": "Enter code:",
+      "placeholder": "XXX - XXX",
+      "confirm": "Confirm",
+      "errors": {
+        "invalid": "That code is not valid. Check the code on the tablet.",
+        "expired": "That code has expired. Get a new code on the tablet.",
+        "used": "That code was already used. Get a new code on the tablet.",
+        "rateLimited": "Too many attempts. Wait a minute and try again.",
+        "network": "Can't reach the server. Check your connection.",
+        "generic": "Something went wrong. Please try again.",
+        "sessionExpired": "Your session has expired. Enter the code again."
+      },
+      "backToSettings": "back to settings",
+      "subtitleLink": "link another tablet"
+    },
+    "tabs": {
+      "label": "Portal navigation",
+      "home": "Home",
+      "patient": "Patient",
+      "routines": "Routines",
+      "context": "Context",
+      "settings": "Settings"
+    },
+    "comingSoon": "Coming soon",
+    "home": {
+      "loading": "Loading today's overview…",
+      "error": "We couldn't load today's overview. Check your connection and try again.",
+      "retry": "Try again",
+      "caregiver": "Caregiver",
+      "shift": "Shift: {{name}}",
+      "patient": "Patient",
+      "fallbackCaregiver": "Caregiver",
+      "fallbackPatient": "Patient",
+      "dailyContext": "Daily context",
+      "noNotes": "No notes for today yet",
+      "schedule": "Schedule",
+      "noRoutines": "No routines scheduled",
+      "category": {
+        "meal": "Meal",
+        "medication": "Medication",
+        "hygiene": "Hygiene",
+        "other": "Routine"
+      },
+      "am": "A.M",
+      "pm": "P.M"
+    },
+    "common": {
+      "loading": "Loading…",
+      "loadError": "We couldn't load this page. Check your connection and try again.",
+      "retry": "Try again",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saved": "Saved",
+      "saving": "Saving…",
+      "close": "Close"
+    },
+    "context": {
+      "daily": {
+        "title": "Daily Context",
+        "placeholder": "Add Daily Context....",
+        "empty": "No notes for today yet"
+      },
+      "permanent": {
+        "title": "Permanent Context",
+        "placeholder": "Add Permanent Context....",
+        "empty": "No permanent notes yet"
+      },
+      "add": "Add note",
+      "delete": "Delete",
+      "deleteItem": "Delete note: {{text}}",
+      "addFailed": "Couldn't save the note. Please try again.",
+      "deleteFailed": "Couldn't delete the note. It has been restored.",
+      "errors": {
+        "empty": "Write a note first.",
+        "tooLong": "Keep it to {{max}} characters or fewer.",
+        "duplicate": "This note is already in the list."
+      }
+    },
+    "patient": {
+      "statusTitle": "Patient Status",
+      "online": "Online",
+      "offline": "Offline",
+      "noDevice": "No tablet paired yet",
+      "battery": "Tablet battery {{percent}}%",
+      "batteryUnknown": "Tablet battery unknown",
+      "speakNow": "Speak Now....",
+      "listening": "Listening…",
+      "micStart": "Dictate a message",
+      "micStop": "Stop dictation",
+      "micUnsupported": "Voice input isn't supported in this browser",
+      "micError": "Couldn't use the microphone. You can type the message instead.",
+      "send": "Send to tablet",
+      "sent": "Sent to the tablet",
+      "sendFailed": "Couldn't send the message. Please try again.",
+      "sendOffline": "Not connected. Check your connection and try again.",
+      "tooLong": "Keep the message to {{max}} characters or fewer.",
+      "logsTitle": "Interaction Logs",
+      "logsEmpty": "No interactions yet",
+      "logsError": "We couldn't load the interaction log.",
+      "logsMoreError": "Couldn't load older entries.",
+      "loadOlder": "Load older",
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "youSent": "You sent",
+      "patientSaid": "Patient said",
+      "intactaReplied": "Intacta replied",
+      "source": {
+        "voice": "Voice",
+        "typed": "Typed",
+        "broadcast": "Message",
+        "routine": "Routine"
+      },
+      "playClip": "Play recording",
+      "pauseClip": "Pause recording",
+      "clipExpired": "Recording expired",
+      "clipError": "Couldn't play"
+    },
+    "routines": {
+      "title": "Daily Routines",
+      "add": "Add routine",
+      "empty": "No routines scheduled",
+      "active": "active:",
+      "next": "next:",
+      "nextAt": "{{title}} at {{time}}",
+      "noneToday": "nothing else today",
+      "enableAll": "enable all\nroutines",
+      "groups": {
+        "morning": "Morning",
+        "afternoon": "Afternoon",
+        "evening": "Evening"
+      },
+      "dayLetters": [
+        "S",
+        "M",
+        "T",
+        "W",
+        "T",
+        "F",
+        "S"
+      ],
+      "dayNames": [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+      ],
+      "toggle": "{{title}} on or off",
+      "edit": "Edit {{title}}",
+      "deleteItem": "Delete {{title}}",
+      "daysFor": "Days for {{title}}",
+      "delete": "Delete",
+      "deleteTitle": "Delete routine?",
+      "deleteBody": "\"{{title}}\" will no longer play on the tablet.",
+      "saveFailed": "Couldn't save the change. It has been undone.",
+      "toggleAllFailed": "Some routines couldn't be updated.",
+      "createFailed": "Couldn't add the routine. Please try again.",
+      "deleteFailed": "Couldn't delete the routine. It has been restored.",
+      "oneDayMin": "Keep at least one day selected.",
+      "addTitle": "New routine",
+      "editTitle": "Edit routine",
+      "fields": {
+        "title": "Title",
+        "time": "Time",
+        "days": "Days",
+        "category": "Category",
+        "categoryPick": "Choose a category",
+        "script": "What the tablet will say",
+        "scriptHint": "e.g. It's time for lunch. Let's go to the table together."
+      },
+      "errors": {
+        "title": "Enter a title.",
+        "titleLong": "Keep the title to 100 characters or fewer.",
+        "time": "Enter a valid time (HH:MM).",
+        "category": "Choose a category.",
+        "script": "Enter the sentence the tablet will say.",
+        "scriptLong": "Keep it to 1000 characters or fewer."
+      }
+    },
+    "settings": {
+      "saveFailed": "Couldn't save. The previous value is back.",
+      "seconds": "{{n}} s",
+      "device": {
+        "title": "Device Pairing",
+        "none": "No tablet paired",
+        "online": "Online",
+        "offline": "Offline",
+        "pairNew": "Pair New Tablet"
+      },
+      "rules": {
+        "title": "Clinical Rules",
+        "strict": "Strict Validation Protocols",
+        "maxSpeech": "Max Speech Duration",
+        "noLimit": "No limit",
+        "offTitle": "Turn off strict validation?",
+        "offConfirm": "Turn off",
+        "offBody": "Intacta will check replies less strictly. Questions, memory quizzing, corrections and other unsafe replies stay blocked regardless of this setting."
+      },
+      "audio": {
+        "title": "Audio settings",
+        "voiceLabel": "Tablet voice",
+        "voiceDefault": "Default voice",
+        "voiceCustom": "Custom voice",
+        "voice": {
+          "id": "Indonesian voice",
+          "en": "English voice"
+        },
+        "speed": "Playback speed",
+        "volume": "Volume",
+        "test": "Test Voice",
+        "testSent": "Sent to the tablet",
+        "testLocal": "Tablet offline: playing on this phone",
+        "testFailed": "Couldn't run the voice test.",
+        "testPhrase": "Hello. This is how I will sound."
+      },
+      "account": {
+        "title": "Account & Security",
+        "profile": "Caregiver profile",
+        "name": "Name:",
+        "email": "Email:",
+        "logout": "Log Out",
+        "logoutTitle": "Log out?",
+        "logoutBody": "To sign in again you'll need a new code from the tablet (Caregiver mode → Authentication code).",
+        "errors": {
+          "name": "Enter a name.",
+          "email": "Enter a valid email address.",
+          "emailTaken": "That email is already used by another account."
+        }
+      },
+      "recordingNotice": "Voice clips are kept for a limited time, and you can delete them."
+    }
+  }
+}

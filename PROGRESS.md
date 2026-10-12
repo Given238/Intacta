@@ -1,0 +1,558 @@
+# Intacta — Progress Status
+
+Last updated: 2026-10-12
+Branch: `wip-recovery` (Phase 3 terminal + 3a/3b backend committed in `ccba0fc`; portal C1–C2 committed per screen)
+
+---
+
+## Phase Status Summary
+
+| Phase | Name | Status | Evidence |
+|-------|------|--------|----------|
+| P0 | Audit fixes, env config, deploy files | **DONE** | `001_initial.sql`, `src/config/env.js`, `Dockerfile`, `render.yaml` |
+| P1 | DB + JWT REST + Socket.IO sync | **DONE** | REST routes, `src/socket/index.js`, auth middlewares, `src/services/audit.js` |
+| P2 | LLM engine (validator, fallbacks, /api/respond, guardrail tests, llm:try) | **DONE, with 2 fixes in 3b** | Prompt template + retry bugs fixed in 3b (see below) |
+| P3a | Backend glue for the terminal | **VERIFIED 2026-10-10** | `src/__tests__/backend-3a.test.js` |
+| P3b | Backend for the new Figma (context items, settings, status, interactions, broadcast, voice test) | **CODE + UNIT TESTS DONE; migration/seed NOT RUN** | `src/__tests__/backend-3b.test.js`; no Postgres on the dev machine |
+| P3 | Patient Terminal UI (`/terminal`) | **IN PROGRESS** | Screens build; client still uses the old contract (see Known bugs) |
+| P4 | Caregiver Portal | **IN PROGRESS** | All portal screens built (`client/src/portal/`): pair, Home, Context, Patient, Routines, Settings; see "Portal C2" |
+| P5 | Voice loop | **NOT STARTED** | |
+| P6 | Routines scheduler, broadcast, settings, EN/ID | **PARTIAL** | Broadcast + settings backend done (3b); no routine scheduler; no portal UI |
+| P7 | Resilience, deploy, demo seed | **PARTIAL** | Seed rewritten for Figma (not executed); not deployed |
+
+---
+
+## Phase 3b (2026-10-10)
+
+### Done
+- **Migration** `src/migrations/003_figma_model.sql` (idempotent): `context_items`, `routines.title` + `routines.days SMALLINT[]`
+  (default all days, 0=Sun..6=Sat), `patient_settings` (range CHECKs), `devices.name`. Copies today's legacy
+  `daily_contexts` rows into `context_items`. `001_initial.sql` `CREATE TYPE` made re-runnable (migrate.js re-runs every file).
+- **REST** (caregiver JWT, ownership 403/404 via `src/services/ownership.js`):
+  `/api/context-items` CRUD (`routes/contextItems.js`), `GET/PUT /api/settings` (`routes/settings.js`),
+  `GET /api/patient/status` + `GET /api/interactions` cursor-paged (`routes/patient.js`), routines take `title`/`days`.
+  Terminal: `GET /api/device/context`, `GET /api/device/settings` (`routes/device.js`). Zod on bodies and query strings.
+- **Removed** legacy `GET/PUT /api/context`, `contextController.js`, socket `context:update` (context writes are REST only).
+- **Socket** (`src/socket/index.js`): non-volatile `context:sync` / `settings:sync` on every change, on terminal connect
+  and on pairing; `broadcast:message` (ownership, ≤200 chars, logged source=broadcast, audited, `interaction:new`);
+  `voice:test` (sends voice settings + language-appropriate test phrase).
+- **LLM**: `prompts.js` builds from today's daily + permanent items; per-patient word cap
+  `min(25, round(max_speech_seconds × 2.5))`, 0 → 25, enforced in `chain.js` after the unchanged validator.
+  `strict_validation` is never read by the pipeline (guardrails always on). Validator and fallbacks untouched.
+- **Seed** (`src/db/seed.js`): Timothy Eugene / Eleanor Vance (en) / "Tablet - Ruang Tamu", 2 daily + 1 permanent items,
+  routines 08:00 Breakfast & Morning Meds, 12:30 Lunch Time, default settings.
+- **Pre-existing bugs fixed on the way**:
+  - `src/config/db.js` threw on require (`dialect.createQueryCompiler is not a function`): the server, migrate and seed
+    could not start. Now a pg Pool with a real Kysely `PostgresDialect` on `pool.db`.
+  - `prompts.js`: the JSON example in the system prompt was parsed as template variables, so **every real LLM call
+    failed and returned a fallback**. Braces are now escaped.
+  - `chain.js`: the retry referenced `prompt` out of scope (ReferenceError → always fallback) and ran without a timeout.
+    Retry now works and shares the 1.2 s budget.
+
+### Verification
+- `cd server && npm test` → **4 suites, 156 passed** (87 LLM tests unchanged + 23 backend-3a + 46 backend-3b).
+- Server boots; `/health` 503 without DB, unknown `/api/*` 404, unauthenticated 401, zod 400 with field errors.
+- All migrations and every SQL statement issued by the new services/seed parse with the Postgres parser (libpg-query).
+- **Not verified**: running migration 003 and the seed against a real Postgres (none installed locally).
+
+---
+
+## Public code-only pairing (2026-10-10)
+
+### Done
+- `POST /api/devices/pair` is public (`optionalAuthenticate` in `middleware/auth.js`), still 5/min/IP.
+  Logic in `src/services/pairingService.js`; controller is thin. No header → creates caregiver + patient
+  (patient "Patient", language `id`); Bearer JWT → that caregiver's patient. Returns caregiver JWT +
+  `{patient_id, language, device_name}`; emits `device:paired` + joins `patient:{id}` + `context:sync`/`settings:sync`; audited.
+- Migration `004_public_pairing.sql`: `caregivers.email`/`password_hash` DROP NOT NULL (chosen over placeholder
+  credentials: smaller, no fake emails), `devices.code_used_at`. Codes now SHA-256 instead of bcrypt so they can be
+  looked up exactly and reported as 400 invalid / 410 expired / 409 used. Code claim is an atomic UPDATE (race → 409),
+  released if linking fails.
+- `authController.login`: 401 for caregivers with no password (was a bcrypt crash on NULL).
+
+### Verification
+- `npm test` → 4 suites, 166 passed (9 new pairing tests in `backend-3a.test.js`).
+- `npm run migrate` ran 001–004 against the `DATABASE_URL` database. Live smoke: register → pair (200, JWT,
+  `device_name: "Tablet"`) → reuse (409 `code_used`) → bad code (400) → bad JWT (401). Smoke rows deleted.
+
+---
+
+## Terminal "Enter Caregiver mode" error (2026-10-10)
+
+**Root cause:** `POST /api/devices/register` failed twice over: the Vite dev proxy forwarded `/api` and `/socket.io` to
+`:3001` while the server listens on `:3000` (proxy ECONNREFUSED → 500), and behind that no Postgres is running on
+`localhost:5432` (pg `AggregateError ECONNREFUSED` with an empty message → generic 500 "Failed to register device").
+
+### Diagnosis (raw)
+- `GET :3000/health` → `503 {"status":"degraded","db":"disconnected"}`
+- `POST :3000/api/devices/register` → `500 {"error":"Failed to register device"}`; log `registerDevice error: ` (empty message)
+- `:3001` → connection refused. No Postgres service/binaries, no Docker, no WSL distro on this machine.
+- No `client/.env` (`VITE_API_URL` unset → same-origin via the Vite proxy, which is correct in dev).
+- CORS is not the problem: the server answers with `access-control-allow-origin: *` for the Vite origin. Route is public.
+- `npm run migrate` → ECONNREFUSED (cannot run without Postgres).
+
+### Fixed
+- `client/vite.config.js`: proxy target defaults to `http://localhost:3000` (override with `VITE_PROXY_TARGET`).
+- `devicesController.registerDevice`: logs error code + stack; unreachable DB → `503 {error, code:"db_unavailable"}`,
+  other failures → `500 {code:"register_failed"}`. Test added (157 tests pass).
+- `client/src/App.jsx`: register fetch uses `VITE_API_URL` as base; error text is `register failed: <status> (<code>)`
+  or `register failed: network (...)`. `pages/Home.jsx` shows that text when `import.meta.env.DEV`, else the
+  friendly i18n `error` string. No design changes.
+- Verified via Vite (`:5173/api/devices/register`) → `503 db_unavailable` reaching the real server.
+
+### Still blocking
+- **Postgres is needed** for register to succeed: install Postgres 16 locally (or use a hosted DB in `DATABASE_URL`),
+  then `npm run migrate` and `npm run db:seed` in `server/`.
+
+---
+
+## Terminal x-device-token helper (2026-10-11)
+
+### Done
+- `client/src/lib/terminalApi.js`: `terminalFetch(path, opts)` is the single place that adds `x-device-token` (from
+  `localStorage.device_token`) and the `VITE_API_URL` base. Throws `TerminalApiError {status, code}`; message is
+  `<status> <server error> (<code>)`. Missing token → `code: no_device_token`, no request sent.
+- `App.jsx`: typed input (`/api/respond`) and the `device:paired` handler (`/api/patients/me`) use it. Typed input shows
+  i18n `notRegistered` ("Terminal not registered, tap Authentication code") when there is no token; other errors show
+  `respond failed: <status> <server error>` in dev, the generic `error` string in prod. No longer requires a socket.
+- The client does not call `/api/device/context`, `/api/device/settings` or `/api/tts` yet; use `terminalFetch` when it does.
+
+### Verification
+- `npx vite build` OK. The helper, bundled and run against the live backend via the Vite proxy: no token →
+  `no_device_token`, bad token → `401 Invalid device token`, paired token → **200** (header fix confirmed).
+- **Reply does NOT appear** ("Where is Timothy?"): 200 body is `{meta:{fallback:true,theme:"disorientation"}}`
+  with no `text`/`parts`. See known bugs 11 and 12. Test device/patient/caregiver rows were deleted afterwards.
+
+---
+
+## Terminal Response crash + typed-input ref + error boundary (2026-10-11)
+
+### Done
+- `pages/Response.jsx`: aligned with the server shape `{text, parts[], meta:{fallback, theme, latency_ms}}`. Uses `text`,
+  else `parts.join(' ')`, else `''` → shows i18n `response.noText` ("I am here with you." / "Saya di sini bersama Anda.").
+  Never calls `.split` on undefined. Latency read from `meta.latency_ms` (was `response.latency_ms`, always undefined).
+  `onDone` held in a ref so the highlight effect doesn't restart on parent re-renders; return-home timer cleared on unmount.
+- `App.jsx` `TypedUtterance`: controlled input (`value` state, cleared with `setValue('')`); no DOM writes through the
+  ref, which is only used with `?.` to focus.
+- `App.jsx` `TerminalErrorBoundary` around the terminal `<Routes>`: friendly i18n message (`errorBoundary.message`) +
+  "Back to home" button (`errorBoundary.home`) that resets the boundary and navigates to `/terminal`.
+
+### Verification
+- `npx vite build` OK. Headless Chrome (CDP, own profile) against the live backend + Vite with a throwaway paired device,
+  `/terminal?dev=1`, typed "Where is Timothy?": `/terminal/response` after ~2.3 s, words lit 1→5 of 5, back on
+  `/terminal` ~3.5 s after the last word, input cleared, **no exceptions or console errors**.
+- **The text shown was the client fallback "I am here with you."**, not an LLM reply: the server still returns no
+  `text` (known bugs 11 + 12). The error boundary was not triggered in the test (no crashing screen left to trigger it).
+- Debug overlay showed `lang en` for an `id` patient: terminal language is never updated on pairing (part of item 8).
+- Test rows deleted afterwards.
+
+---
+
+## LLM always falls back: diagnosis (2026-10-11)
+
+### Root cause
+Gemini returns **404 "models/gemini-2.5-flash-lite is no longer available to new users"** (suggests
+`gemini-3.5-flash-lite`). Key is set (`gemini_api_key_set: true`), no 429, no schema error. The retry then hangs until the
+1.2 s budget aborts it (retrying a 404 is pointless). Checked and ruled out:
+- `thinkingConfig` is silently ignored by the installed `@langchain/google-genai@0.1.12` (no support in its dist).
+  On 3.5-flash-lite `thinkingBudget: 0` is rejected (400), but the model reports 0 thought tokens anyway.
+- `GEMINI_MODEL` / `LLM_TIMEOUT_MS` were declared in `config/env.js` and `.env` but **never read**: model and timeout
+  were hardcoded.
+
+### Done
+- `llm/chain.js`: `logFallback()` (skipped when `NODE_ENV=production`) prints stage, error name, message (key value
+  redacted if it ever appears), HTTP status, `gemini_api_key_set` true/false. `TIMEOUT_MS` reads `LLM_TIMEOUT_MS`
+  (default 1200). Abort detection was case-sensitive (`'aborted'` vs the real `"Aborted"`), so timeouts were treated
+  as errors and "retried" on a dead signal; now `/abort/i`.
+- `llm/model.js`: model from `GEMINI_MODEL` (default still `gemini-2.5-flash-lite`).
+- `llm/cli.js`: uses `runChain` (same pipeline as `/api/respond`, incl. the debug log) and prints `text`/`parts`,
+  built from `validate/reassure/redirect` for fallbacks. No more `undefined`.
+- `.env` and CLAUDE.md **not** changed (model is pinned there; needs a decision).
+
+### Verification
+- `npm test` → 4 suites, 166 passed.
+- `gemini-3.5-flash-lite` (env override, direct calls, with context): 6/6 valid replies, **1075–1391 ms**; one invented
+  "Timothy is at school" despite context saying work. Through `runChain` with 1.2 s: 3/3 timed out → fallback.
+  With `LLM_TIMEOUT_MS=2500`: 3/4 LLM replies at 1552–1668 ms (EN + ID), 1 rejected by the validator (26 words) and the
+  retry ran out of time.
+- With no context (CLI), the model invented "Timothy is safe at work today" instead of a generic phrase (FR-4.3.5).
+
+## Clinical fix: no invented facts (2026-10-11)
+
+### Done
+- `src/llm/prompts.js` (EN + ID system prompts): `reassure` may only state facts written in the daily/permanent
+  context items. Never invent a person's whereabouts, arrival time, activity, or any name/relationship. If the
+  context does not answer the utterance (or is empty), `reassure` is a general true comfort ("You are safe, and I am
+  here with you." / "Kamu aman, dan aku di sini bersamamu."). No assumed gender/title/name for the patient
+  ("you"/"kamu"). Validator, fallbacks, model.js unchanged.
+- `src/llm/__tests__/factuality.test.js`: offline prompt-content checks (always run) and live-model cases, gated by
+  `LIVE_LLM=1` (`cd server && LIVE_LLM=1 npx jest factuality`). Live cases 3x per language: (a) no context +
+  "Where is Timothy?" / "Timothy di mana?" → no forbidden patterns (kamar, sebelah, istirahat, "<name> sedang",
+  room, resting, on his way, work, times, soon/later, coming/pulang, son/anak, Ibu/Bapak/Mom/...);
+  (b) context "Timothy (son) comes home at 5.00 P.M" → no invented place/activity/relationship/title, and no time
+  other than 5 / 5.00 / 17.00. Live runs force a ~8 s budget (`LIVE_LLM_TIMEOUT_MS`) so slow calls are not masked
+  by a fallback; a fallback fails the test.
+
+### Verification
+- `npm test` → 5 suites, 170 passed, 12 skipped (the live cases).
+- `LIVE_LLM=1 npx jest factuality` (gemini-3.5-flash-lite) → 16/16 passed, 12/12 live replies were LLM output (no
+  fallback). No context: every reassure was exactly the general comfort sentence, no title. With context: every reply
+  stated "Timothy comes home at 5 PM" (EN) / "pulang pukul lima sore" (ID) and nothing else.
+  First live run (before the test budget fix): EN no-context 2/3 fell back on "Aborted" at ~1-2 s although
+  `.env` has `LLM_TIMEOUT_MS=4000` (unexplained, see item 17).
+
+---
+
+## Portal C1a: pairing screen + app shell (2026-10-11)
+
+### Done
+- `client/src/main.jsx` mounts `portal/PortalApp.jsx` for any `/portal*` path, otherwise the terminal `App` (separate
+  apps on one origin; the "back to patient page" link does a full load of `/terminal`).
+- `/portal/pair` = Figma 62:171 (`portal/pages/Pair.jsx`): code input (A-Z/0-9, uppercase, shown `XXX - XXX`),
+  Confirm → `POST /api/devices/pair {code}` (`portal/portalApi.js`). Success stores `{token, patient_id, language,
+  device_name}` in localStorage `portal_session` (`portal/session.js`) and goes to `/portal`. Errors map
+  `invalid_code`/`code_required`, `code_expired`, `code_used`, `rate_limited`, network, other → toast styled like the
+  terminal's (`portal/components/PortalToast.jsx`), auto-hides after 5 s.
+- Shell (`PortalApp.jsx`): `PortalHeader` (logo/brand/tagline, clipped to the viewport) + bottom `TabBar`
+  (Home, Patient, Routines, Context, Settings; Lucide icons; 64px + safe-area-inset-bottom; active tab on `#05668d`).
+  Content area padded by the bar height. Tabs render `portal/pages/Placeholder.jsx`.
+- Guard: every `/portal/*` route except `/portal/pair` redirects to `/portal/pair` without a stored session;
+  unknown `/portal/*` → `/portal`. No tab bar on the pair screen.
+- Strings under `portal.*` in `client/src/i18n/{en,id}.json`. Logo reuses `assets/logo.svg` (identical paths to Figma
+  62:175); divider exported from Figma as `assets/portal-divider.svg`.
+- `client/index.html` viewport gets `viewport-fit=cover` so `env(safe-area-inset-*)` is non-zero on iOS.
+
+### Verification
+- `npx vite build` passes; `oxlint` clean on `src/portal` + `main.jsx`.
+- Headless Chrome at 402×874 (CDP): `/portal/settings` without session → `/portal/pair`; input `ab3k9z` shows
+  `AB3 - K9Z`; real server returned 400 → "not valid" toast; stubbed 200 → body `{"code":"DEVD4Y"}`, session stored,
+  lands on `/portal` with Home active; with a session `/portal/routines` shows the shell, Routines active,
+  tab targets 52×74, no horizontal scroll. Not tested on a real phone or with a real successful pair.
+
+### Notes
+- Fonts: Figma uses Montserrat (title, "Enter code:") and Baloo 2; per the brief the portal reuses the terminal's
+  Inter 800 and Baloo Da 2 800 instead (no new font packages).
+- Portal UI language still follows the shared i18n instance (`terminal_language`, default en); the per-user toggle
+  belongs to the Settings screen. The pair request sends no Authorization header ("Pair New Tablet" comes later).
+- Tailwind v4 ignores the `--font-family-*` theme names, so portal code uses `[font-family:var(--font-family-…)]`.
+
+## Portal C1b: Home screen (2026-10-11)
+
+### Done
+- `client/src/portal/pages/Home.jsx` = Figma 29:42: today's date (locale-formatted), Caregiver card ("Shift: <name>"),
+  Patient card, Daily context bar (first daily item; whole bar links to `/portal/context`, chevron on the right),
+  Schedule card (today's active routines: `is_active`, `days` includes today's weekday or `days` is NULL, sorted by
+  `trigger_time`; "HH:MM - title", falling back to `display_text` then the category name; past times struck through as in Figma).
+- Data: `GET /api/patient/status`, `GET /api/context-items?scope=daily`, `GET /api/routines`, in parallel via
+  `portalFetch` (`portal/portalApi.js`, Bearer JWT from `portal_session`). Loading spinner, error card with "Try again",
+  empty states "No notes for today yet" / "No routines scheduled". Missing names → "Caregiver" / "Patient".
+- `portalFetch`: any 401 clears `portal_session` and does `location.replace('/portal/pair')`.
+- Layout (`PortalApp.jsx`): whole portal is a centered column, full width on phones, max 480px on larger screens
+  (backdrop `intacta-panel`); tab bar is fixed to the bottom of that column. Shell background is now `#427aa1` (Figma
+  portal frames); the pair screen keeps its own `#164c67`.
+- Inter weights: see "Portal typography" below (imports moved to `main.jsx`).
+- Strings under `portal.home.*` in `client/src/i18n/{en,id}.json`.
+
+### Verification
+- `npx vite build` passes; `oxlint` clean on `src/portal`.
+- Headless Chrome (CDP) with a stubbed `fetch`: all three calls carry `Bearer`; schedule drops the inactive and the
+  other-weekday routine and sorts by time; chevron bar → `/portal/context`; empty data → both empty states and
+  "Patient" fallback; 500 → error card, retry → data; 401 → `/portal/pair` with the session cleared; loading state
+  shows; 1280×800 → 480px column centered, tab bar 480 wide at the column bottom. Not tested against the real
+  backend with a real paired session.
+
+### Notes / open
+- **Caregiver name is always "Caregiver"**: no API returns it (`/api/patient/status` has no caregiver field and the pair
+  response doesn't either). Home reads `status.caregiver_name` if the server ever adds it. Adding it is a backend change.
+- The Figma Home header has a hamburger (drawer); per CLAUDE.md the drawer is not used, so the shell header is unchanged.
+- Figma has no arrow on the Daily context bar; the chevron is Lucide `ChevronRight` (same icon the terminal imports).
+- "Today" for routines uses the phone's local weekday/time; daily context uses the server's `CURRENT_DATE` (item 5).
+
+## Portal typography (2026-10-11)
+
+### Done
+- The whole portal is Inter; only the "Intacta" wordmark is Baloo Da 2 ExtraBold (Figma 29:42).
+- `client/src/main.jsx` imports `@fontsource/inter` 300, 400, 500, 600, 700, 800 (+ Baloo Da 2 400/800). The
+  per-portal imports in `PortalApp.jsx` are gone.
+- Shared text classes in `client/src/portal/portal.css` (family + weight only; size/color stay Tailwind):
+  `.portal` (root font-family `"Inter", sans-serif`), `text-wordmark` (Baloo Da 2 800), `text-title-bold` (700),
+  `text-title-semibold` (600), `text-body-medium` (500), `text-body-regular` (400), `text-body-light` (300).
+  Plain CSS rather than Tailwind `@utility` so the global `index.css` stays untouched; unlayered, so they win over utilities.
+- Used everywhere in the portal: header (wordmark, tagline medium), tab labels (semibold 12px), toast (medium),
+  placeholders (title bold, body light), Pair, Home. No `[font-family:…]`/`font-bold`-style per-component fonts remain.
+- Home, all 13px white: date + card titles bold, card values light, "Daily context"/"Schedule" semibold, daily text +
+  routine rows light. Routine rows read `08:00 A.M - Title` (12-hour, suffixes `portal.home.am/pm` in en/id.json);
+  rows already past today are struck through.
+- Pair: Baloo Da 2 subtitle and Confirm switched to Inter (bold / semibold); Montserrat headings were already Inter, now
+  bold 700 as in Figma; back link Inter Regular. Subtitle is 21px centered (Inter at 23px wrapped onto two lines).
+
+### Verification
+- `npx vite build` passes; `oxlint` clean on `src/portal` + `main.jsx`.
+- Headless Chrome at 402×874, computed styles: date/card titles Inter 700 13px, card values + daily text + rows
+  Inter 300 13px, "Daily context"/"Schedule" Inter 600 13px, past rows `line-through`, rows `08:00 A.M - …`,
+  tab labels Inter 600, wordmark Baloo Da 2 800, tagline Inter 500; placeholder Inter 700/300; Pair all Inter.
+
+## Portal C2: Context, Patient, Routines, Settings (2026-10-11, one commit per screen)
+
+### DONE
+- **Context** (`client/src/portal/pages/Context.jsx`, Figma 60:60): Daily (today) + Permanent lists from
+  `GET /api/context-items`; trash per item with an inline Delete/Cancel confirm; "Add … context" pill + plus button,
+  Enter submits. Optimistic add/delete with rollback + toast; failed add puts the text back. Validation: empty,
+  case-insensitive duplicate, >200 chars (inline error; counter from 160). Empty states "No notes for today yet" /
+  "No permanent notes yet". Icons exported from Figma: `assets/icons/trash.svg` (107:1627), `assets/icons/plus-circle.svg` (107:1634).
+  No backend change (endpoints + ownership checks already existed).
+- Shared for all portal screens: `portal/usePortalLoad.js` (load / error / retry), `portal/components/LoadState.jsx`
+  (Loading, LoadError with retry, Empty, CARD), tab bar hides while a text field is focused and the field scrolls
+  into view (`TabBar.jsx`; sliders/switches don't count).
+- Verified live (backend on :3000 + Neon, throwaway paired tablet, rows deleted afterwards), headless Chrome 402×874:
+  add daily via Enter, add permanent via plus, duplicate/empty/too-long errors, failed POST rolls back + keeps text,
+  failed DELETE restores the row, real delete, reload shows server state. A socket.io client authenticated as the
+  tablet received `context:sync` after every add/delete with the updated lists (the terminal's `App.jsx` puts that
+  payload into its `context` state; the terminal does not persist it to localStorage).
+
+- **Patient** (`portal/pages/Patient.jsx` + `portal/pages/InteractionLog.jsx`, Figma 60:120):
+  - Status card: name, Online/Offline dot (Figma 60:540 green dot; grey CSS dot when offline), battery ring + %
+    from `GET /api/patient/status`, updated live by `device:status` over the caregiver socket (`portal/usePortalSocket.js`,
+    JWT in `auth.token`). "No tablet paired yet" when there is no device.
+  - Speak bar: Figma's dark circle (60:4796) is the mic button (Web Speech dictation, `id-ID`/`en-US` from the patient's
+    language, pulsing red ring while recording, disabled with a tooltip where unsupported); white field takes typed text;
+    Enter or the send button emits `broadcast:message {patientId, text}` with an ack (5 s timeout). "Sent to the tablet"
+    confirmation, 200-char check, offline/failed toasts.
+  - Interaction Logs: `GET /api/interactions` (20 per page, "Load older" with `before`), live `interaction:new` prepended,
+    day headers (Today / Yesterday / date). Row = time (Inter ExtraBold 19px, `text-display`) + 132×36 white pill.
+    Audio rows (`audio_available` + `waveform_peaks`): 30 bars drawn from the peaks, playhead, played part tinted;
+    tap = play/pause; clip fetched with the JWT as a blob (`portalFetchBlob`, `audio_url` or
+    `/api/interactions/:id/audio`); one clip at a time; 404/410 → "Recording expired". Other rows: source icon + label.
+    Tapping the time/chevron expands transcript + reply ("You sent" for broadcasts). The list scrolls inside the card,
+    whose height is measured so it ends above the tab bar.
+  - Terminal (`client/src/App.jsx`): `broadcast:message` navigates to `/terminal/response` with the text (voice in Phase 5).
+- **Backend fix** (landed in commit `ccba0fc` with the Phase 3/3b backend): `server/src/socket/index.js` registered the caregiver's `broadcast:message`
+  / `voice:test` handlers only after awaiting the patient-rooms query, so an event sent right after connecting was
+  silently dropped (seen live: no ack). Handlers are now registered first. Test: `server/src/__tests__/portal-c2.test.js`
+  (fails on the old code, passes now).
+- Patient verified live (headless Chrome + throwaway tablet): status 73% arrived via `device:status`; a typed broadcast
+  was acked, reached the tablet socket (`broadcast:message` + `interaction:new`), appeared live in the log, expanded to
+  "You sent …", survived a reload; the real terminal page (`/terminal?dev=1`, paired as that tablet) switched to
+  `/terminal/response` showing the text, then returned home. Waveform path tested with mocked rows + WAV blobs:
+  play → pause icon, starting a second clip stops the first, pause, 410 → "Recording expired", Bearer sent on clip
+  fetches, "Load older" appends and disappears at the end, card ends 142px above the tab bar.
+
+- **Routines** (`portal/pages/Routines.jsx` + `portal/pages/RoutineForm.jsx`). Figma frame 60:30 only holds the header
+  and the "enable all routines" label; the switch (93:202), chip (93:222), card (93:223), rows (93:254…), day letters
+  (93:329…) and pen/trash icons sit on the page canvas around it and were read from there. Pen icon exported to
+  `assets/icons/pen.svg` (93:251); trash and plus-circle reuse the Context exports (same components).
+  - Chip "active: N / next: <title> at <time>" (next active routine later today, else "nothing else today");
+    "enable all routines" switch PUTs `is_active` on every routine that differs (failures roll back individually).
+  - Rows grouped Morning (<12:00) / Afternoon (<18:00) / Evening, sorted by time: time pill, title, per-row switch,
+    pen (edit), trash (confirm dialog), tappable S M T W T F S (selected bold; last day can't be removed).
+  - "+ Add routine" opens `RoutineForm` (title, time `HH:MM`, days, category meal/medication/hygiene, audio script),
+    required-field + time-format validation with inline errors and focus on the first error. Create/update/delete/toggle
+    are optimistic with rollback + toast. Shared `components/Switch.jsx` (M3 look) and `components/Dialog.jsx`
+    (bottom sheet, Esc/backdrop close, focus in/out).
+  - No backend change: `/api/routines` already checks ownership on every route.
+  - Verified live: validation messages, typing keeps focus in the dialog, Esc closes, 3 routines created land in the
+    right groups, row switch / day toggle / enable-all on-off persist, edit pre-fills and re-sorts, failed PUT rolls
+    back with a toast, delete confirm, reload shows server state, Home's Schedule shows the changes (Sunday-disabled
+    routine correctly hidden on a Sunday), at 402×600 the last row ends above the tab bar after scrolling.
+
+- **Settings** (`portal/pages/Settings.jsx`, Figma 60:90 + canvas icons Bluetooth 107:86, Mic 107:1504,
+  keyboard_arrow_up 107:1565 → `assets/icons/{bluetooth,mic,keyboard-arrow-up}.svg`; status dot reuses `status-dot-online.svg`).
+  - Device Pairing: device name, Online/Offline dot + battery % (status + live `device:status`), "Pair New Tablet" →
+    `/portal/pair?link=1`: the pair request then carries the JWT so the tablet joins the same patient; back link goes to
+    Settings; an invalid stored JWT (401) clears the session and asks for the code again (`Pair.jsx`, `portalApi.pairWithCode`).
+  - Clinical Rules: Strict Validation switch (turning it off opens a confirm dialog stating that questions / memory
+    quizzing / corrections stay blocked regardless), Max Speech Duration slider 0–15 s ("No limit" at 0).
+  - Audio: voice dropdown (Default / Indonesian voice / English voice from `GET /api/settings/voices`, plus "Custom
+    voice" for an unknown stored id), playback speed 0.85–1.0x (0.05 steps), volume 60–70 dB, "Test Voice": tablet online
+    → `voice:test` with ack (the terminal shows the text in its response view, `client/src/App.jsx`); offline or failed →
+    browser `speechSynthesis` in the patient's language (rate = playback speed, 60–70 dB mapped to volume 0.5–1.0).
+  - Account & Security: caregiver name + email (save on blur/Enter, inline validation, 409 → "already used"), Log Out
+    (confirm dialog explaining a new tablet code is needed; clears the JWT → `/portal/pair`).
+  - Recording notice line under the cards. Sliders save on release (pointer up / key up / blur), switches and the
+    dropdown on change; per-card "Saving… / Saved" indicator; failures roll back with a toast. Saves are queued in order
+    and only the newest reply is applied (found live: two fast slider steps could land out of order).
+  - `components/Placeholder.jsx` removed (every tab is a real screen now).
+- **Backend additions** (committed with the Settings screen):
+  - `GET/PUT /api/caregiver` (own profile: name, email; zod `updateCaregiverSchema`; 409 `email_taken`; audited
+    `caregiver.update`): `routes/caregiver.js`, `controllers/caregiverController.js`, `services/caregiverService.js`,
+    mounted in `src/index.js`. Always scoped to the JWT's caregiver, so no cross-caregiver access is possible.
+  - `GET /api/settings/voices` (caregiver JWT): configured `ELEVENLABS_VOICE_ID_ID` / `_EN` as `{language, id}`.
+  - Tests: `server/src/__tests__/portal-c2.test.js` (6 tests). Full suite: 6 suites, 176 passed, 12 skipped.
+- Settings verified live: strict off → confirm → saved (`settings:sync` with `strict_validation:false` reached the
+  tablet socket) → back on; slider keyboard steps saved and synced (4 rapid steps → server 5, after the fix); volume
+  saved; voices listed; Test Voice → tablet socket got `voice:test` and the real terminal page showed the phrase;
+  forced-offline status → Indonesian `speechSynthesis` call with rate 1 / volume 0.80; name + email saved and
+  reloaded, invalid email rejected inline; Pair New Tablet with a second registered tablet → back on Settings, same
+  patient id; Log Out → `/portal/pair`, session cleared. No console errors.
+
+### Needs manual testing (real devices)
+- Phone keyboard: tab bar hides while typing and the focused field stays visible (Context inputs, Speak Now, dialogs).
+- Web Speech dictation on Patient (Chrome Android / Safari iOS; needs HTTPS + mic permission) in id-ID and en-US.
+- Browser speech fallback for Test Voice (real audio output; voices differ per OS).
+- Waveform playback against a real audio backend (only mocked; the endpoint `/api/interactions/:id/audio` and the
+  `audio_available` / `waveform_peaks` fields don't exist yet).
+- Safe-area insets on a notched iPhone (header, tab bar, bottom-sheet dialogs).
+- Pair New Tablet with a real second tablet; the first tablet keeps working in the same patient room.
+- Range sliders by touch (commit on touchend/pointerup).
+
+### Test data
+- Live checks used a throwaway pairing (caregiver + patient + 2 devices on the `DATABASE_URL` DB); deleted afterwards.
+
+### Known visual diffs
+- All portal frames: the Figma header has a hamburger (drawer); the drawer is replaced by the tab bar, so no hamburger.
+- Context: Figma's add pill is a fixed 255px with the plus at a fixed x and the two cards use slightly different
+  insets/heights (189 / 227px); here the pill flexes and both cards share one layout with natural height.
+- Context: Figma shows the permanent "Household" note as a heading + bullet list; items are plain text here
+  (line breaks in a note are kept).
+- Patient: battery ring is an SVG (white track + green arc, amber ≤20%); Figma uses a Material progress indicator
+  with gaps between track and arc. Mic glyph inside the dark circle, the send arrow in the field, the chevron next to
+  each time and the source icons (Lucide) are not in Figma. Day headers and "Load older" are additions.
+- Patient: Figma's pill waveform is a placeholder image; waveforms are drawn from `waveform_peaks` (30 bars).
+- Routines: Figma's list card is a fixed 374×670 with no group headers; here it has natural height, Morning /
+  Afternoon / Evening headers and an "Add routine" label next to the plus. Day letters are 24×30px targets
+  (below 44px; the add/edit dialog has 44px day buttons). The M3 switch is rebuilt in CSS (`Switch.jsx`).
+- Routines: Figma shows lowercase "lunch" in the chip; the routine title is used as stored.
+- Settings: card titles are 12px (Figma 10px) and pill buttons are 32px tall (Figma 24px) for legibility/touch.
+  The strict-validation switch is the shared green `Switch` (Figma's is grey). Sliders are single-value range inputs
+  (Figma draws a handle at both ends). The voice pill is a native select with Figma's arrow (rotated to point down).
+  Name/Email are editable inputs (Figma shows static labels); saved indicator and recording notice are additions.
+- (Terminal response page and its source label removed 2026-10-12; see "Terminal home rework".)
+- Terminal reply/greeting text has no panel (2026-10-12): measured white-on-gradient contrast 2.13–3.12:1
+  (min 2.41 on the greeting line), not-yet-spoken words 1.83–2.53:1; target is 7:1. Details and per-region numbers in
+  "Terminal home rework → Remaining diffs vs Figma 1:2".
+
+---
+
+## Terminal home rework (2026-10-12, Figma 1:2)
+
+### Done
+- **One screen** at `/terminal`: `/terminal/response` and `/terminal/clock` routes deleted (`pages/Response.jsx`,
+  `pages/Clock.jsx` removed; `TODO(clock)` in `App.jsx` + `Home.jsx`). `/terminal/pairing` kept (pairing flow unchanged).
+- **One reply path** `presentReply({text, parts, audioEl?, source})` in `App.jsx`, used by typed input (`/api/respond`),
+  `response:ready` (plays `audio_url` when present), `broadcast:message`, `routine:trigger` (`audio_script`) and
+  `voice:test`. Leaves the pairing screen if it is open. Empty text → i18n `response.noText`.
+- **Lifecycle** `client/src/lib/replyLifecycle.js` (framework-free) + `hooks/useReplyLifecycle.js`: idle → speaking →
+  holding → idle. Speaking = audio duration (ends on `ended`/`error`, safety timeout) or estimate
+  words / 2.5 per s / `playback_speed` + 0.5 s; `playback_speed` now read from `settings:sync`. Holding = `HOLD_MS`
+  (8 s, one constant). A new reply cancels the old timers/audio listeners.
+- **Reply in the greeting's box** `components/ReplyText.jsx`: 250 ms cross-fade greeting ↔ reply, word highlight
+  advanced per frame across the speaking duration. >3 lines → shrink 40 → 32 px, then grow downward; moves up only
+  if the text would pass the stage bottom (`lib/replyLayout.js`).
+- **Reply styling (follow-up, same day)**: the dark panel behind the reply is gone. Greeting and reply share one text
+  style: Inter ExtraBold, 40 px (32 px min for long replies), white, centered, same box (271, 610, 703), no background,
+  border or radius, and the same soft shadow `0 2px 12px rgba(0,0,0,0.35)` (`TEXT_SHADOW` in `lib/contrast.js`).
+  Words not yet spoken stay white at 80%.
+- **Contrast test** (`lib/__tests__/replyDisplay.test.js`): samples the mesh gradient behind the text box every 4 px
+  (same `sampleBicubic` as `MeshBackground`, 88% over the white stage) and logs min / median / max for white and for
+  80% white. It no longer requires 7:1 (see "Known visual diffs"); it fails only if the minimum drops below the
+  measured value (white 2.1, upcoming 1.8), i.e. if the background behind the text gets brighter.
+- **Waveform** `components/WaveformBars.jsx`: exact Figma tops/heights, no idle animation; while speaking each bar is
+  `scaleY` 0.35–1.0 from the bottom edge, smoothed (attack 60 ms / release 160 ms), rAF; eases back in 400 ms.
+  Amplitude source behind `hooks/useAmplitudeSource.js` / `lib/amplitude.js`: AnalyserNode on the audio element
+  (MediaElementSource created once per element, cached in a WeakMap) or procedural speech-like noise.
+  `prefers-reduced-motion` → slow uniform pulse. Bars are now placed in stage coordinates (the old wrapper shifted
+  them 2px up) and the non-Figma 2px baseline line is gone.
+- **Screen fixes**: typed dev input is inside the stage at (297, 140), 600 wide, semi-transparent, error below it;
+  debug overlay moved to the bottom-left (shows `reply` phase instead of `audio`); letterbox filled with the same mesh
+  (cover-scaled) plus the header band continued across; stage backdrop is white under the 88% mesh (was purple);
+  mesh canvas has the stage aspect so it fills the stage without cropping.
+- Greeting uses the Figma apostrophe ("I’m").
+
+### Verification
+- `cd client && npm test` (new, vitest): 2 files, 28 tests (lifecycle timers, replace mid-speech / during hold,
+  audio end/error/safety/detach, highlight, estimate, contrast, font fit, box top, procedural levels).
+  After the styling follow-up: 2 files, 22 tests (the contrast block is now 2 sampled-region tests instead of 8).
+- Styling follow-up, headless Chrome 1194×834 with `/api/respond` stubbed via CDP (no DB rows): computed style of the
+  greeting and of a reply are identical (Inter 800 40px, white, centered, same shadow, box 271/610/703, transparent,
+  radius 0, nothing else in the box); a 183-char reply renders at 32 px and ends at y=802; no console errors.
+  `npx vite build` OK. Server suite not touched.
+- Headless Chrome at 1194×834 against the live backend + Vite, throwaway paired tablet, caregiver socket sending
+  `broadcast:message` (the portal Patient screen's event, acked `{success:true}`): idle bars static at Figma heights;
+  reply shown in the greeting box; bars moving 0.53–0.88 while speaking; back to Figma heights in holding; greeting
+  back after 5.3 s + 8 s; second broadcast replaced the first mid-speech; 28-word and 183-char texts → 32 px, panel
+  ends above the stage bottom; typed `?dev=1` "Where is Timothy?" → real LLM reply (ID) in the same box;
+  `/terminal/response` redirects to `/terminal`; 1600×834 letterbox filled; no console errors.
+- Not tested: real audio (`audio_url` / analyser mode), reduced-motion pulse, a real tablet, a broadcast typed in
+  the portal UI itself (the socket event was sent directly).
+
+### Remaining diffs vs Figma 1:2 (not fixed)
+- **Contrast below 7:1 (measured, no panel by decision)**: white text against the gradient behind the text box is
+  2.41 min / 2.61 median / 3.04 max on the greeting line (y 610–658) and 2.13 / 2.63 / 3.12 over the full reply area
+  (y 610–818). Not-yet-spoken words (80% white): 2.04 / 2.17 / 2.47 and 1.83 / 2.18 / 2.53. The text-shadow is
+  not counted in these numbers. This misses the CLAUDE.md target (terminal contrast ≥7:1).
+- Header (pre-existing, shared component): Figma's play triangle (62:119) is 32×31 at x=594 and the chevron (58:2) is
+  larger; ours are ~12px icons next to the text. Brand/tagline sit a few px lower than Figma (top 7 / 76).
+- Greeting is centered in the 703px box (as specified); Figma's text box is left-aligned (difference ~5px here).
+- Mesh: canvas approximation of Figma's WebGPU shader fill; colours close, Figma shows faint blocky artefacts at the top.
+- Letterbox: the cover-scaled mesh does not line up exactly with the stage's own mesh, so a faint seam shows at the
+  stage edges on wide screens.
+
+### Test data
+- **Not cleaned up**: the checks created caregivers 9–12 + patients 9–12 (code-paired, email NULL) with one device
+  each and their broadcast interaction/audit rows on the `DATABASE_URL` DB. The delete was blocked by a permission
+  rule in this session; delete them manually.
+
+---
+
+## Known bugs / open items
+1. **Run `npm run db:seed`** and smoke-test the 3b endpoints (migrate 001–004 has now run against `DATABASE_URL`). (CLAUDE.md says
+   `db:migrate`; the script is named `migrate`.)
+2. **Anxiety fallback violates guardrails**: `src/llm/fallbacks.js` anxiety `redirect` contains `?` (EN + ID) and the ID
+   `validate` contains stray Chinese characters. The guardrail test only checks the generic theme
+   (`getFallback('test', …)`), so it passes. Not changed in 3b (fallbacks were out of scope). Needs a decision.
+3. Fallback scripts (up to ~21 words) can exceed a reduced per-patient cap (e.g. max_speech_seconds 8 → 20 words).
+4. Remaining Figma routines (frame 60:30) not seeded: `TODO(wire)` in `src/db/seed.js`.
+5. "Today" uses Postgres `CURRENT_DATE` (server timezone). On a UTC host, daily items roll over at 07:00 WIB.
+6. Broadcast text is caregiver-authored and is not passed through the LLM validator (length check only).
+7. `routinesController.js` still has no try/catch around DB calls (pre-existing).
+8. Client still on the old contract: `/api/respond` sent with `Authorization: Bearer`
+   instead of `x-device-token`; calls non-existent `/api/patients/me`; `device:status` without battery is rejected;
+   expects the old context shape (visitor_name/arrival_time/passive_cue) and does not handle `settings:sync`,
+   `broadcast:message`, `voice:test`.
+9. ~~Pairing requires a caregiver JWT~~ fixed 2026-10-10 (public code-only pairing, see below). Open: `register`
+   still resets `devices.patient_id` to NULL, so re-entering Caregiver mode on a paired tablet unpairs it and the
+   next pair creates a new caregiver + patient. The pair service already reuses a device's existing patient if
+   register stops resetting it; decide which behaviour the demo wants.
+10. No routine scheduler (`routine:trigger`); the terminal handles the event (shows `audio_script`) since 2026-10-12.
+19. CLAUDE.md target "terminal returns to clock mode 60 s after audio ends" no longer holds: clock mode is removed and
+    replies return to the greeting 8 s after speaking (per the 2026-10-12 brief). Needs a decision / CLAUDE.md update.
+20. Terminal language stays `en` after pairing an `id` patient (`/api/patients/me` doesn't exist; part of item 8).
+11. **Every LLM call fails**: Gemini returns 404 "models/gemini-2.5-flash-lite is no longer available to new users"
+    (suggests `gemini-3.5-flash-lite`). The model is pinned in CLAUDE.md; needs a decision. `chain.js` catch hides the error.
+12. **Fallback replies have no text**: `getFallback` returns `{validate, reassure, redirect, _theme}` but `/api/respond`
+    sends `aiResponse.text`/`parts`, so every fallback is a 200 with an empty reply (also `llm:try` prints `text: undefined`).
+13. An unpaired device's token gets 401 "Invalid device token" on `/api/respond` (the only device in the DB right now
+    is unpaired). Pair the tablet, or run `npm run db:seed` and use the printed token.
+14. **LLM latency vs FR-4.3.2**: `gemini-3.5-flash-lite` takes ~1.1–1.7 s from this machine, so the 1.2 s budget
+    falls back on most calls. Needs a decision (raise `LLM_TIMEOUT_MS`, stream, or a different model). Not changed.
+15. Retry runs even on non-retryable errors (404/400), burning the rest of the budget.
+16. ~~With empty context the model invents facts~~ fixed 2026-10-11 in the prompts (see "Clinical fix"). The
+    validator still can't catch an invented fact; only the live suite (`LIVE_LLM=1`) checks it.
+17. Live runs saw `Aborted` after ~1-2 s with `LLM_TIMEOUT_MS=4000` in `.env` (EN, no context). Not investigated.
+18. The ID model often adds a "ya" tag ("Kamu sedang mencari Timothy ya."). There's no `?`, so it passes the
+    validator, but it reads like a soft question. Clinical call.
+
+## Client state
+- `npx vite build` succeeds; dev server starts.
+- Routes: `/terminal`, `/terminal/pairing`, `*` → `/terminal`. Start gate first. Replies render on `/terminal` (no response page).
+- Typed input toggles with ` (Esc closes), debug overlay with ~ (Shift+`); keys ignored while a field is focused.
+  `?dev=1` shows both permanently. Old Ctrl+Shift+T/D dropped (Chrome intercepts them). Overlay shows route, socket,
+  reply phase, language, token/patient presence, context sync; bottom-left since 2026-10-12. Shortcuts in `docs/demo-script.md`.
+- Portal routes: `/portal/pair`, `/portal`, `/portal/patient`, `/portal/routines`, `/portal/context`, `/portal/settings`
+  (`client/src/portal/PortalApp.jsx`).
+
+---
+
+## NEXT
+0. Delete the 2026-10-12 test rows (patients/caregivers 9–12, see "Terminal home rework → Test data").
+1. Decide model (item 11: set `GEMINI_MODEL=gemini-3.5-flash-lite`?) and timeout (item 14), fix the fallback shape
+   (item 12), then re-test typed input.
+2. Run seed against the `DATABASE_URL` DB; smoke-test the 3b endpoints.
+3. Decide on the anxiety fallback (item 2).
+4. Update the terminal client to the new contract (item 8), then commit Phase 3 on `phase-3-terminal`.
+5. Phase 4: Caregiver Portal screens are built (see "Portal C2"): run the manual device checks, then verify Phase 4
+   and tick it.
+
+## Environment variables
+Names only (values live in `server/.env`, never here): `GEMINI_API_KEY`, `ELEVENLABS_API_KEY` (empty until Phase 5),
+`JWT_SECRET`, `DATABASE_URL`, `CLIENT_ORIGIN`, `API_ORIGIN`, `PORT`.

@@ -6,13 +6,19 @@ async function authenticateDevice(req, res, next) {
     return res.status(401).json({ error: 'Missing x-device-token header' });
   }
 
-  const result = await query(
-    `SELECT d.id AS device_id, d.patient_id, d.token_hash, p.language
-     FROM devices d
-     JOIN patients p ON p.id = d.patient_id
-     WHERE d.token_hash = $1 AND d.patient_id IS NOT NULL`,
-    [token]
-  );
+  let result;
+  try {
+    result = await query(
+      `SELECT d.id AS device_id, d.patient_id, d.token_hash, p.language
+       FROM devices d
+       JOIN patients p ON p.id = d.patient_id
+       WHERE d.token_hash = $1 AND d.patient_id IS NOT NULL`,
+      [token]
+    );
+  } catch (err) {
+    console.error('authenticateDevice error:', err.message);
+    return res.status(500).json({ error: 'Device authentication failed' });
+  }
 
   if (result.rows.length === 0) {
     return res.status(401).json({ error: 'Invalid device token' });

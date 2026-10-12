@@ -4,10 +4,7 @@
  */
 
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
-const { getStructuredModel } = require('./model');
-const { buildPrompt } = require('./prompts');
-const { validateResponse } = require('./validator');
-const { getFallback } = require('./fallbacks');
+const { runChain } = require('./chain');
 
 const args = process.argv.slice(2);
 const langFlagIdx  = args.indexOf('--lang');
@@ -23,35 +20,19 @@ if (!transcript) {
   process.exit(1);
 }
 
-const TIMEOUT_MS = 1200;
-
+// Same pipeline as POST /api/respond (validator, retry, timeout, fallback)
 async function singleRun() {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const start = Date.now();
+  const result = await runChain({ transcript, daily_items: [], permanent_items: [], timeOfDay: null, language });
+  return { latencyMs: Date.now() - start, result };
+}
 
-  try {
-    const model = getStructuredModel();
-    const prompt = buildPrompt({ transcript, visitor_name: null, arrival_time: null, passive_cue: null, timeOfDay: null, language });
-    const chain = prompt.pipe(model);
-    const raw = await chain.invoke({}, { signal: controller.signal });
-    clearTimeout(timeout);
-    const latencyMs = Date.now() - start;
-    const parsed = typeof raw === 'object' && raw !== null ? raw : JSON.parse((raw?.content || String(raw)).trim());
-    const { valid, error } = validateResponse(parsed, language);
-    if (!valid) throw new Error(`Validation failed: ${error}`);
-    const parts = [parsed.validate, parsed.reassure, parsed.redirect].filter(Boolean);
-    return { latencyMs, result: { text: parts.join(' '), parts, _fallback: false } };
-  } catch (err) {
-    clearTimeout(timeout);
-    const latencyMs = Date.now() - start;
-    if (err.name === 'AbortError' || err.message?.includes('aborted')) {
-      console.warn('  → LLM timeout — fallback');
-    }
-    return { latencyMs, result: { ...getFallback(transcript, language), _fallback: true } };
-  } finally {
-    clearTimeout(timeout);
-  }
+// LLM replies carry text/parts; fallback scripts carry validate/reassure/redirect
+function replyFields(result) {
+  const parts = Array.isArray(result.parts)
+    ? result.parts
+    : [result.validate, result.reassure, result.redirect].filter(Boolean);
+  return { text: result.text ?? parts.join(' '), parts };
 }
 
 async function main() {
@@ -80,8 +61,9 @@ async function main() {
     console.log(`Latency: ${latencyMs}ms`);
     console.log(`Fallback: ${result._fallback}`);
     if (result._theme) console.log(`Theme: ${result._theme}`);
-    console.log(`\ntext: ${result.text}`);
-    console.log(`parts: ${JSON.stringify(result.parts)}`);
+    const { text, parts } = replyFields(result);
+    console.log(`\ntext: ${text}`);
+    console.log(`parts: ${JSON.stringify(parts)}`);
   }
 }
 

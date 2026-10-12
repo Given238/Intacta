@@ -4,15 +4,18 @@
  * Step 1 (terminal):  POST /api/devices/register  { device_id, code }
  *   Generates a 6-char pairing code, TTL 10 min, single use.
  *
- * Step 2 (caregiver): POST /api/pair  { code }
- *   Rate-limited 5/min per IP.
- *   Returns a caregiver JWT scoped to the paired patient.
+ * Step 2 (caregiver): POST /api/devices/pair  { code }   — public, no login
+ *   Rate-limited 5/min per IP. Optional caregiver JWT ("Pair New Tablet").
+ *   Returns a caregiver JWT scoped to the paired patient + {patient_id, language, device_name}.
  */
 
 const crypto  = require('crypto');
-const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const { query } = require('../db/query');
+const { loadContextSnapshot, buildContextSync } = require('../services/contextService');
+const { getSettings, buildSettingsSync } = require('../services/settingsService');
+const { pairWithCode, hashCode, PairingError } = require('../services/pairingService');
+const { logAudit } = require('../services/audit');
 
 const CODE_CHARS    = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I, O, 0, 1 — avoids confusion
 const CODE_LENGTH   = 6;
@@ -42,6 +45,12 @@ function checkPairRateLimit(ip) {
   return true;
 }
 
+const DB_DOWN_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', '57P03']);
+
+function isDbUnavailable(err) {
+  return DB_DOWN_CODES.has(err.code) || (err.errors || []).some((e) => DB_DOWN_CODES.has(e.code));
+}
+
 // ── Step 1: Terminal registers and gets a pairing code ────────────────────────
 async function registerDevice(req, res) {
   const { device_id } = req.body;
@@ -52,131 +61,136 @@ async function registerDevice(req, res) {
   try {
     const code      = generateCode();
     const expiresAt = new Date(Date.now() + CODE_TTL_MS);
-    const codeHash   = await bcrypt.hash(code, 8);
+    const codeHash   = hashCode(code);
+    // Terminal keeps this token for socket + REST auth, before and after pairing.
+    // token stored plain-text in demo; swap for a hash in production
+    const deviceToken = crypto.randomBytes(32).toString('hex');
 
     // Upsert by device_uid so re-registration refreshes the code
     const result = await query(
-      `INSERT INTO devices (device_uid, pairing_code, code_expires_at)
-       VALUES ($1, $2, $3)
+      `INSERT INTO devices (device_uid, pairing_code, code_expires_at, token_hash)
+       VALUES ($1, $2, $3, $4)
        ON CONFLICT (device_uid) DO UPDATE
          SET pairing_code = EXCLUDED.pairing_code,
              code_expires_at = EXCLUDED.code_expires_at,
+             code_used_at = NULL,
              patient_id = NULL,
-             token_hash = ''
+             token_hash = EXCLUDED.token_hash
        RETURNING id`,
-      [device_id, codeHash, expiresAt]
+      [device_id, codeHash, expiresAt, deviceToken]
     );
 
-    return res.json({ device_db_id: result.rows[0].id, code, expires_at: expiresAt.toISOString() });
+    return res.json({
+      device_db_id: result.rows[0].id,
+      device_token: deviceToken,
+      code,
+      expires_at: expiresAt.toISOString(),
+    });
   } catch (err) {
-    console.error('registerDevice error:', err.message);
-    return res.status(500).json({ error: 'Failed to register device' });
+    // pg connection failures are AggregateErrors with an empty message: log the code + stack.
+    console.error('registerDevice error:', err.code || err.name, err.stack);
+    if (isDbUnavailable(err)) {
+      return res.status(503).json({ error: 'Database unavailable', code: 'db_unavailable' });
+    }
+    return res.status(500).json({ error: 'Failed to register device', code: 'register_failed' });
   }
 }
 
-// ── Step 2: Caregiver submits pairing code ────────────────────────────────────
+// ── Step 2: Caregiver submits pairing code (public; optional caregiver JWT) ──
 async function pairDevice(req, res) {
   const ip   = req.ip || req.connection.remoteAddress || 'unknown';
   if (!checkPairRateLimit(ip)) {
-    return res.status(429).json({ error: 'Too many pairing attempts. Wait 1 minute.' });
+    return res.status(429).json({ error: 'Too many pairing attempts. Wait 1 minute.', code: 'rate_limited' });
   }
 
-  const { code } = req.body;
+  const { code } = req.body || {};
   if (!code || typeof code !== 'string') {
-    return res.status(400).json({ error: 'code is required' });
+    return res.status(400).json({ error: 'code is required', code: 'code_required' });
   }
 
   const normalCode = code.trim().toUpperCase();
   if (normalCode.length !== CODE_LENGTH) {
-    return res.status(400).json({ error: `Code must be ${CODE_LENGTH} characters` });
+    return res.status(400).json({ error: `Code must be ${CODE_LENGTH} characters`, code: 'invalid_code' });
   }
 
+  let paired;
   try {
-    // Find a device with a non-expired, non-null pairing code
-    const deviceRows = await query(
-      `SELECT id, pairing_code, patient_id
-       FROM devices
-       WHERE pairing_code IS NOT NULL
-         AND code_expires_at > NOW()
-       ORDER BY code_expires_at DESC
-       LIMIT 10`
-    );
-
-    let matchedDevice = null;
-    for (const row of deviceRows.rows) {
-      const valid = await bcrypt.compare(normalCode, row.pairing_code);
-      if (valid) { matchedDevice = row; break; }
-    }
-
-    if (!matchedDevice) {
-      return res.status(400).json({ error: 'Invalid or expired pairing code' });
-    }
-
-    if (matchedDevice.patient_id !== null) {
-      return res.status(400).json({ error: 'Device already paired' });
-    }
-
-    // Caregiver must be authenticated
-    const caregiverId = req.caregiverId;
-    if (!caregiverId) {
-      return res.status(401).json({ error: 'Caregiver authentication required' });
-    }
-
-    // Get or create patient for this caregiver
-    let patientRows = await query(
-      'SELECT id FROM patients WHERE caregiver_id = $1 LIMIT 1',
-      [caregiverId]
-    );
-    let patientId;
-    if (patientRows.rows.length === 0) {
-      const newPatient = await query(
-        `INSERT INTO patients (caregiver_id, name, language)
-         VALUES ($1, 'Patient', 'id')
-         RETURNING id`,
-        [caregiverId]
-      );
-      patientId = newPatient.rows[0].id;
-    } else {
-      patientId = patientRows.rows[0].id;
-    }
-
-    // Generate device token and link device to patient
-    // token stored plain-text in demo; swap for bcrypt in production
-    const deviceToken = crypto.randomBytes(32).toString('hex');
-    // token_hash comparison is plain-text in demo; swap for bcrypt.compare in production
-
-    await query(
-      `UPDATE devices
-       SET patient_id = $1, token_hash = $2,
-           pairing_code = NULL, code_expires_at = NULL,
-           is_online = true, last_seen_at = NOW()
-       WHERE id = $3`,
-      [patientId, deviceToken, matchedDevice.id]
-    );
-
-    // Issue JWT scoped to this caregiver
-    const authToken = jwt.sign(
-      { caregiverId, patientId },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
-    );
-
-    // Emit device:paired to terminal
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`patient:${patientId}`).emit('device:paired', { patient_id: patientId });
-    }
-
-    return res.json({
-      success: true,
-      token: authToken,
-      patient_id: patientId,
-      device_token: deviceToken, // shown once to caregiver to configure terminal
-    });
+    paired = await pairWithCode({ code: normalCode, caregiverId: req.caregiverId || null });
   } catch (err) {
-    console.error('pairDevice error:', err.message);
-    return res.status(500).json({ error: 'Pairing failed' });
+    if (err instanceof PairingError) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
+    console.error('pairDevice error:', err.code || err.name, err.stack);
+    if (isDbUnavailable(err)) {
+      return res.status(503).json({ error: 'Database unavailable', code: 'db_unavailable' });
+    }
+    return res.status(500).json({ error: 'Pairing failed', code: 'pair_failed' });
+  }
+
+  const { caregiverId, patientId, language, deviceId, deviceName, createdPatient } = paired;
+  await logAudit({
+    caregiverId,
+    action:  'device.pair',
+    payload: { device_id: deviceId, patient_id: patientId, created_patient: createdPatient },
+  });
+
+  // Move the connected terminal into the patient room, then notify it.
+  // Emits are best-effort: the device is linked, and the terminal re-syncs on reconnect.
+  const io = req.app.get('io');
+  if (io) {
+    try {
+      const deviceRoom = `device:${deviceId}`;
+      io.in(deviceRoom).socketsJoin(`patient:${patientId}`);
+      io.to(deviceRoom).emit('device:paired', { patient_id: patientId, language });
+      const [contextSync, settingsSync] = await Promise.all([
+        buildContextSync(patientId),
+        buildSettingsSync(patientId),
+      ]);
+      if (contextSync)  io.to(deviceRoom).emit('context:sync', contextSync);
+      if (settingsSync) io.to(deviceRoom).emit('settings:sync', settingsSync);
+    } catch (err) {
+      console.error('pairDevice sync emit failed:', err.message);
+    }
+  }
+
+  // Caregiver JWT scoped to this patient
+  const authToken = jwt.sign(
+    { caregiverId, patientId },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+  );
+
+  return res.json({
+    success:     true,
+    token:       authToken,
+    patient_id:  patientId,
+    language,
+    device_name: deviceName,
+  });
+}
+
+// ── Terminal reads (x-device-token): context snapshot and settings ────────────
+async function getDeviceContext(req, res) {
+  try {
+    const snapshot = await loadContextSnapshot(req.patientId);
+    if (!snapshot) return res.status(404).json({ error: 'Patient not found' });
+    const { language, updated_at, ...context } = snapshot;
+    return res.json({ context, language, updated_at });
+  } catch (err) {
+    console.error('getDeviceContext error:', err.message);
+    return res.status(500).json({ error: 'Failed to load context' });
   }
 }
 
-module.exports = { registerDevice, pairDevice };
+async function getDeviceSettings(req, res) {
+  try {
+    const settings = await getSettings(req.patientId);
+    if (!settings) return res.status(404).json({ error: 'Patient not found' });
+    return res.json({ settings });
+  } catch (err) {
+    console.error('getDeviceSettings error:', err.message);
+    return res.status(500).json({ error: 'Failed to load settings' });
+  }
+}
+
+module.exports = { registerDevice, pairDevice, getDeviceContext, getDeviceSettings };

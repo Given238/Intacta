@@ -22,6 +22,7 @@
     "express": "^4.19.2",
     "express-validator": "^7.2.0",
     "jsonwebtoken": "^9.0.2",
+    "kysely": "^0.27.6",
     "pg": "^8.12.0",
     "socket.io": "^4.7.5",
     "zod": "^3.23.8"
@@ -32,7 +33,9 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "testMatch": ["**/__tests__/**/*.test.js"],
+    "testMatch": [
+      "**/__tests__/**/*.test.js"
+    ],
     "verbose": true
   }
 }
