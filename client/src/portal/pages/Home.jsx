@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next'
 import { ChevronRight, Loader2 } from 'lucide-react'
 
 import { portalFetch } from '../portalApi'
+import { jakartaClock } from '../../lib/jakartaTime'
 import { getSession } from '../session'
 
 const CARD = 'rounded-[25px] bg-[#043961] text-white'
@@ -36,7 +37,7 @@ async function loadHome(patientId) {
     portalFetch(`/api/context-items?patientId=${pid}&scope=daily`),
     portalFetch(`/api/routines?patientId=${pid}`),
   ])
-  const weekday = new Date().getDay()
+  const { weekday } = jakartaClock() // routine days/times are Asia/Jakarta
   return {
     status:   status.status,
     daily:    context.items || [],
@@ -87,7 +88,7 @@ export default function Home() {
     const pad  = (n) => String(n).padStart(2, '0')
     return `${pad(h12)}:${pad(mins % 60)} ${t(h24 < 12 ? 'portal.home.am' : 'portal.home.pm')}`
   }
-  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const nowMinutes = jakartaClock(now).minutes
 
   return (
     <div className="pl-[21px] pr-[26px] pt-[18px] text-[13px] text-white">

@@ -15,6 +15,7 @@ const respondRoutes   = require('./routes/respond');
 const devicesRoutes  = require('./routes/devices');
 const ttsRoutes      = require('./routes/tts');
 const setupSocket    = require('./socket');
+const { startRoutineScheduler } = require('./services/routineScheduler');
 
 const app    = express();
 const server = http.createServer(app);
@@ -61,6 +62,7 @@ app.use((err, req, res, next) => {
 });
 
 setupSocket(io);
+if (process.env.NODE_ENV !== 'test') startRoutineScheduler(io);
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 server.listen(PORT, () => {

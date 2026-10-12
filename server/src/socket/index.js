@@ -12,6 +12,7 @@ const { buildContextSync, loadContextSnapshot } = require('../services/contextSe
 const { buildSettingsSync, getSettings } = require('../services/settingsService');
 const { logAudit } = require('../services/audit');
 const { logInteraction } = require('../llm/interactionLogger');
+const { deliverPending } = require('../services/routineScheduler');
 
 function setupSocket(io) {
   // ── Dual-auth handshake middleware ─────────────────────────────────────────
@@ -107,6 +108,8 @@ function setupSocket(io) {
       if (socket.patientId) {
         socket.join(`patient:${socket.patientId}`);
         await sendTerminalState(socket, socket.patientId);
+        // Routines that came due while this terminal was offline (≤ GRACE_MIN minutes ago)
+        deliverPending(io, socket.patientId);
       }
 
       socket.on('device:status', handleDeviceStatus(io, socket));

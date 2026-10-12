@@ -73,7 +73,7 @@ Known limitation (state it in the pitch): code-only caregiver auth is a hackatho
 - terminal → server: `utterance:submit` {transcript}
 - server → terminal: `response:ready` {text, parts[], audio_url?}
 - server → portal: `interaction:new` {transcript, ai_response, source, created_at}
-- server → terminal: `routine:trigger` {audio_script, category}
+- server → terminal: `routine:trigger` {id, title, audio_script, category} (scheduler, Asia/Jakarta clock; terminal queues it behind a reply)
 - caregiver → server: `broadcast:message` {patientId, text ≤200} → terminal `broadcast:message` {text, created_at}
   (+ `interaction:new` source=broadcast; logged + audited; ack {success})
 - caregiver → server: `voice:test` {patientId} → terminal `voice:test` {text, language, voice_gender, playback_speed, volume_db}; ack {success}

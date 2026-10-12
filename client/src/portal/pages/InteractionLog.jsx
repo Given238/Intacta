@@ -218,7 +218,16 @@ function LogRow({ row, time, open, onToggle }) {
       </div>
       {open && (
         <div id={panelId} className="mx-[10px] mt-[6px] rounded-[10px] bg-white/10 px-[14px] py-[10px] text-[13px] leading-normal">
-          {row.source === 'broadcast' ? (
+          {row.source === 'routine' ? (
+            <>
+              <p className="text-title-semibold text-intacta-text">{t('portal.patient.routine')}</p>
+              <p className="text-body-regular whitespace-pre-line break-words">{row.transcript || '–'}</p>
+              <p className="text-title-semibold mt-[8px] text-intacta-text">
+                {row.ai_response?.missed ? t('portal.patient.routineMissed') : t('portal.patient.intactaReplied')}
+              </p>
+              <p className="text-body-regular whitespace-pre-line break-words">{(row.ai_response?.missed ? row.ai_response.script : reply) || '–'}</p>
+            </>
+          ) : row.source === 'broadcast' ? (
             <>
               <p className="text-title-semibold text-intacta-text">{t('portal.patient.youSent')}</p>
               <p className="text-body-regular whitespace-pre-line break-words">{row.transcript}</p>

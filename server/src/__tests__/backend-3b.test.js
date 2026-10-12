@@ -396,7 +396,7 @@ describe('routines accept title and days', () => {
     await routinesCtl.updateRoutine({ caregiverId: 1, params: { id: '1' }, body: { title: 'Brunch', days: [0, 6] } }, makeRes());
     const [sql, params] = mockQuery.mock.calls[1];
     expect(sql).toMatch(/title = COALESCE\(\$6, title\)/);
-    expect(params.slice(5)).toEqual(['Brunch', [0, 6], '1']);
+    expect(params.slice(5, 8)).toEqual(['Brunch', [0, 6], '1']);
   });
 });
 

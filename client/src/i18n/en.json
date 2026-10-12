@@ -141,6 +141,8 @@
       "loadOlder": "Load older",
       "today": "Today",
       "yesterday": "Yesterday",
+      "routine": "Routine",
+      "routineMissed": "Missed: the tablet was offline. Not spoken:",
       "youSent": "You sent",
       "patientSaid": "Patient said",
       "intactaReplied": "Intacta replied",

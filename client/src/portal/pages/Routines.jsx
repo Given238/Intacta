@@ -16,6 +16,7 @@ import penIcon        from '../../assets/icons/pen.svg'
 import trashIcon      from '../../assets/icons/trash.svg'
 import plusCircleIcon from '../../assets/icons/plus-circle.svg'
 import { portalFetch } from '../portalApi'
+import { jakartaClock } from '../../lib/jakartaTime'
 import { getSession } from '../session'
 import { usePortalLoad, sessionPatientId } from '../usePortalLoad'
 import { formatClock, timeToMinutes } from '../format'
@@ -211,9 +212,10 @@ export default function Routines() {
 function Summary({ routines, now, onToggleAll }) {
   const { t } = useTranslation()
   const active  = routines.filter(r => r.is_active !== false)
-  const nowMins = now.getHours() * 60 + now.getMinutes()
+  const clock   = jakartaClock(now) // routine times are Asia/Jakarta
+  const nowMins = clock.minutes
   const next    = active
-    .filter(r => daysOf(r).includes(now.getDay()) && timeToMinutes(r.trigger_time) > nowMins)
+    .filter(r => daysOf(r).includes(clock.weekday) && timeToMinutes(r.trigger_time) > nowMins)
     .sort(byTime)[0]
   const allOn   = routines.length > 0 && active.length === routines.length
 

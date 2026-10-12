@@ -11,6 +11,7 @@ import { terminalFetch } from './lib/terminalApi'
 import { replyTextOf } from './lib/replyLifecycle'
 import { speak, unlockAudio } from './lib/speaker'
 import { requestMic } from './lib/voiceInput'
+import { createSpeechQueue } from './lib/speechQueue'
 
 import StartGate from './components/StartGate'
 import Home      from './pages/Home'
@@ -120,6 +121,18 @@ export default function App() {
   }, [presentReply, speakStart, speakAbandoned])
   sayRef.current = say
 
+  /* ── Routines wait while a reply is spoken / loading or the patient's words are being processed ── */
+  const micStateRef = useRef(micState)
+  micStateRef.current = micState
+  const routineQueueRef = useRef(null)
+  if (!routineQueueRef.current) {
+    routineQueueRef.current = createSpeechQueue({
+      isBusy: () => phaseRef.current === 'speaking' || pendingSaysRef.current > 0 || micStateRef.current === 'processing',
+      speak: (item) => sayRef.current({ text: item.text, source: 'routine' }),
+    })
+  }
+  useEffect(() => { routineQueueRef.current.pump() }, [phase, micState])
+
   /* ── Start gate ── */
   const handleStart = useCallback(() => {
     unlockAudio() // synchronously inside the tap
@@ -221,7 +234,8 @@ export default function App() {
     const onResponse = (payload = {}) => say({ text: payload.text, parts: payload.parts, source: payload.source })
     // caregiver's typed/dictated message
     const onBroadcast = ({ text } = {}) => text && say({ text, source: 'broadcast' })
-    const onRoutine = ({ audio_script } = {}) => audio_script && say({ text: audio_script, source: 'routine' })
+    const onRoutine = ({ id, audio_script } = {}) =>
+      audio_script && routineQueueRef.current.enqueue({ key: id ?? audio_script, text: audio_script })
     // Settings "Test Voice": the server already applies the saved voice/speed in /api/tts
     const onVoiceTest = ({ text, playback_speed } = {}) =>
       text && say({ text, source: 'voice_test', playbackSpeed: Number(playback_speed) || undefined })

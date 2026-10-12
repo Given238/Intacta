@@ -16,8 +16,8 @@ Branch: `wip-recovery` (Phase 3 terminal + 3a/3b backend committed in `ccba0fc`;
 | P3b | Backend for the new Figma (context items, settings, status, interactions, broadcast, voice test) | **CODE + UNIT TESTS DONE; migration/seed NOT RUN** | `src/__tests__/backend-3b.test.js`; no Postgres on the dev machine |
 | P3 | Patient Terminal UI (`/terminal`) | **IN PROGRESS** | Screens build; client still uses the old contract (see Known bugs) |
 | P4 | Caregiver Portal | **IN PROGRESS** | All portal screens built (`client/src/portal/`): pair, Home, Context, Patient, Routines, Settings; see "Portal C2" |
-| P5 | Voice loop | **IN PROGRESS** | Parts A (audio out) + B (mic → server STT) done 2026-10-12; latency targets missed, tablet test pending. See "Voice and routines" |
-| P6 | Routines scheduler, broadcast, settings, EN/ID | **PARTIAL** | Broadcast + settings backend done (3b); no routine scheduler; no portal UI |
+| P5 | Voice loop | **CODE DONE, NOT VERIFIED ON TABLET** | Parts A (audio out) + B (mic → server STT) 2026-10-12, branch `phase-5-voice`; STT + TTS latency targets missed. See "Voice and routines" |
+| P6 | Routines scheduler, broadcast, settings, EN/ID | **PARTIAL** | Routine scheduler done 2026-10-12 (Part C); broadcast + settings + portal UI done; EN/ID not verified end to end |
 | P7 | Resilience, deploy, demo seed | **PARTIAL** | Seed rewritten for Figma (not executed); not deployed |
 
 ---
@@ -632,6 +632,78 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
 - That nothing is captured while the reply plays (verified headless via track state, not acoustically).
 - First load time of the 14 MB VAD wasm on the tablet's network.
 
+### Part C: routine scheduler (DONE)
+- **Server** `src/services/routineScheduler.js`, started with the server (`src/index.js`, not under `NODE_ENV=test`),
+  every 30 s. Clock = `Intl.DateTimeFormat` with `timeZone: 'Asia/Jakarta'` (date, HH:MM, weekday), never the
+  server's local time. Pure `classifyRoutine()`: active + today's weekday (`days` empty/NULL = every day) + time
+  reached today + `last_fired_on` ≠ today →
+  - ≤ 10 min late and a terminal socket (`device:*` room) is in `patient:{id}` → `routine:trigger
+    {id, title, audio_script, category}` to the room, interaction logged (`source: routine`, transcript = title,
+    ai_response = `{text: script, parts}`), `interaction:new` to the portal, marked fired;
+  - ≤ 10 min late, terminal offline → waits; `deliverPending()` runs on terminal (re)connect (`socket/index.js`);
+  - > 10 min late → skipped, logged as missed (`ai_response {missed: true, reason: 'terminal_offline', script}`) + `interaction:new`;
+  - due before the scheduler process started (server down / first deploy) → marked handled, no missed log.
+  Marking is an atomic `UPDATE … WHERE last_fired_on IS DISTINCT FROM today RETURNING`, so a routine fires at most
+  once per Jakarta day. Script = `audio_script`, else `display_text`, else title.
+- Migration `006_routine_scheduler.sql`: `routines.last_fired_on DATE` (ran on the `DATABASE_URL` DB).
+- **Times**: `trigger_time` is Asia/Jakarta wall-clock (TIME, no zone), validated `HH:MM` 24 h (zod, field error).
+  Creating a routine, or changing its time/days, after its time today sets `last_fired_on` = today, so it is neither
+  fired late nor logged missed for today; a new time still ahead today fires today (`routinesController.js`).
+- **Terminal**: `routine:trigger` goes through `lib/speechQueue.js`: spoken at once when free, otherwise queued (in
+  order, once per routine id) while a reply is speaking, a reply's TTS is loading, or the mic is processing; pumped
+  when the phase / mic state changes. Spoken via the Part A path (`say` → `/api/tts` → greeting box), so the mic is
+  stopped while it plays (Part B).
+- **Portal**: Home Schedule and the Routines "next" chip use the Asia/Jakarta clock (`client/src/lib/jakartaTime.js`)
+  instead of the phone's timezone. Interaction log: routine rows show "Routine: <title>" and the script, or
+  "Missed: the tablet was offline. Not spoken:" + script.
+- **Tests**: `server/src/__tests__/routines-c.test.js` (30: Jakarta clock incl. midnight/month/year crossing and
+  `TZ` independence, exact minute, 10-min grace → missed, weekdays incl. the Jakarta weekday at 00:05 = UTC Sunday,
+  once per day with string/Date `last_fired_on`, inactive/bad time, create/re-time rule, runTick online / offline wait
+  → reconnect / missed / stale / double claim, script fallback, time validation). Client
+  `lib/__tests__/speechQueue.test.js` (6: immediate, wait for speaking, order, processing, dedupe, pump while busy).
+
+### Part C verification
+- `cd server && npm test` → 9 suites, 251 passed, 12 skipped. `cd client && npm test` → 4 files, 41 passed. Build OK.
+- Live on patient 12 (headless terminal on :5174 + caregiver socket, routines created/deleted via the API):
+  - Queue: routine due 23:01 WIB fired at the server 7.5 s into the minute while `voice:test` replies kept the
+    terminal speaking for 40 s; the terminal spoke it 1.3 s after the last reply finished, in the greeting box.
+  - Offline: terminal closed when a routine came due at 23:03; ≥ 45 s later nothing had been delivered; on reconnect
+    it was delivered at once (`interaction:new` before the page finished loading) and spoken.
+  - Missed: routine due 23:06 WIB with the terminal closed; at ~23:17 (first tick > 10 min late) the portal socket got
+    `interaction:new` with `ai_response.missed`; reopening the terminal afterwards did not speak it.
+  - Portal 402×874: Home Schedule + Routines chip show the routine at its Jakarta time; log rows render; no errors.
+- Delivery delay = scheduler tick alignment, 0–30 s after the minute starts (+ TTS start).
+
+### Test data / side effects (Part C)
+- **The first scheduler tick (before the "stale" rule existed) logged two spurious "missed" routine rows** for
+  routines whose time had passed before the scheduler existed: `interaction_logs` id 50 (patient 7, "Lunch" 12:00)
+  and id 51 (patient 13, "Eat medicine" 22:15). Their `routines.last_fired_on` is today, which is harmless (they fire
+  again tomorrow). Delete rows 50 and 51 if those patients are real; not deleted here.
+- Patient 12 (throwaway, see "Terminal home rework → Test data") got voice/routine interaction rows, a settings row
+  (`voice_gender`) and audit rows from these checks. Its test routines were deleted through the API.
+
+### Needs manual testing on the tablet (Part C)
+- A routine at a real time with the tablet on: spoken through the speaker, mic muted while it plays.
+- Tablet asleep / offline at the routine time, back within 10 minutes (delivered) and after 10 minutes (missed in the
+  portal log, not spoken).
+- A routine arriving while the patient is talking (should wait for the reply, then play).
+
+---
+
+## Session summary: voice + routines (2026-10-12)
+- **Done**: A (ElevenLabs `/api/tts`, voices by gender, Tap-to-start, shared audio element + analyser, browser speech
+  fallback, portal voice + Test Voice), B (Silero VAD mic, server STT with Gemini audio, mic state machine with 3.0 s
+  cooldown, dev overlay timings), C (Asia/Jakarta routine scheduler with once-per-day, 10-min offline grace, missed
+  log, terminal queue, portal Jakarta clock). Commits on local branch `phase-5-voice` (not pushed).
+- **Measured latencies** (this machine, internet APIs): STT 1.4–2.5 s (target 800 ms, **missed**), LLM reply
+  0.8 s warm (target ~2 s, met), TTS first byte 0.94–1.65 s with `eleven_multilingual_v2` (target 500 ms, **missed**;
+  `eleven_flash_v2_5` 133–147 ms), browser reply → audio start 1.65 s, VAD end → audio start 4.6 s warm. Routine
+  delivery 0–30 s after its minute.
+- **Needs manual testing on the tablet**: see the three "Needs manual testing" lists above (speaker/mic hardware,
+  iPad Safari audio + mic + VAD, echo, real routines on/offline).
+- **Decisions needed**: TTS model (flash meets 500 ms), STT latency vs 800 ms, the 7:1 contrast and clock-mode
+  targets (items 19 and the "Known visual diffs"), spurious missed rows 50/51.
+
 ---
 
 ## Known bugs / open items
@@ -653,7 +725,12 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
    still resets `devices.patient_id` to NULL, so re-entering Caregiver mode on a paired tablet unpairs it and the
    next pair creates a new caregiver + patient. The pair service already reuses a device's existing patient if
    register stops resetting it; decide which behaviour the demo wants.
-10. No routine scheduler (`routine:trigger`); the terminal handles the event (shows `audio_script`) since 2026-10-12.
+10. ~~No routine scheduler~~ done 2026-10-12 (Part C). Open: a routine due in the last minutes before midnight
+    whose terminal reconnects after midnight is never delivered or logged (the new Jakarta day starts clean).
+21. `devices.is_online` is never set false on disconnect, so the portal shows a closed tablet as Online (seen during
+    Part A/C checks). The scheduler does not use this flag (it checks live sockets).
+22. Fallback replies still have no `text` (item 12), so a voice utterance that falls back is spoken as the client's
+    "I am here with you." / "Saya di sini bersama Anda.".
 19. CLAUDE.md target "terminal returns to clock mode 60 s after audio ends" no longer holds: clock mode is removed and
     replies return to the greeting 8 s after speaking (per the 2026-10-12 brief). Needs a decision / CLAUDE.md update.
 20. Terminal language stays `en` after pairing an `id` patient (`/api/patients/me` doesn't exist; part of item 8).
@@ -684,7 +761,8 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
 ---
 
 ## NEXT
-- **IN PROGRESS (this session)**: Part C routine scheduler.
+- Tablet test of Parts A–C (lists under "Voice and routines"); restart `npm run dev` first so `/vad/` assets are served.
+- Delete spurious routine "missed" rows 50 and 51 if patients 7 / 13 are real (see Part C side effects).
 - Decide on STT latency (Gemini audio 1.4–2.5 s vs the 800 ms target): accept, or move to a streaming STT.
 - Decide the TTS model (`ELEVENLABS_MODEL_ID=eleven_flash_v2_5` meets the 500 ms first-byte target; the default misses it).
 0. Delete the 2026-10-12 test rows (patients/caregivers 9–12, see "Terminal home rework → Test data").
