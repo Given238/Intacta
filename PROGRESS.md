@@ -16,7 +16,7 @@ Branch: `wip-recovery` (Phase 3 terminal + 3a/3b backend committed in `ccba0fc`;
 | P3b | Backend for the new Figma (context items, settings, status, interactions, broadcast, voice test) | **CODE + UNIT TESTS DONE; migration/seed NOT RUN** | `src/__tests__/backend-3b.test.js`; no Postgres on the dev machine |
 | P3 | Patient Terminal UI (`/terminal`) | **IN PROGRESS** | Screens build; client still uses the old contract (see Known bugs) |
 | P4 | Caregiver Portal | **IN PROGRESS** | All portal screens built (`client/src/portal/`): pair, Home, Context, Patient, Routines, Settings; see "Portal C2" |
-| P5 | Voice loop | **IN PROGRESS** | Part A (audio out) done 2026-10-12; Part B (mic) next. See "Voice and routines" |
+| P5 | Voice loop | **IN PROGRESS** | Parts A (audio out) + B (mic → server STT) done 2026-10-12; latency targets missed, tablet test pending. See "Voice and routines" |
 | P6 | Routines scheduler, broadcast, settings, EN/ID | **PARTIAL** | Broadcast + settings backend done (3b); no routine scheduler; no portal UI |
 | P7 | Resilience, deploy, demo seed | **PARTIAL** | Seed rewritten for Figma (not executed); not deployed |
 
@@ -571,6 +571,67 @@ Gemini returns **404 "models/gemini-2.5-flash-lite is no longer available to new
 - `speechSynthesis` voices on the tablet in id-ID / en-US when ElevenLabs is down.
 - Portal Test Voice with the tablet offline (local `/api/tts` playback was checked only at the API level).
 
+### Part B: microphone (DONE)
+- **Capture** (`lib/voiceInput.js`): `requestMic()` runs inside the Start tap with `{echoCancellation, noiseSuppression,
+  channelCount: 1}`. Silero VAD v5 via `@ricky0123/vad-web` 0.0.31 (`MicVAD`, shared AudioContext), segments < 0.4 s
+  ignored (`minSpeechMs` + own check). Pausing capture **stops the mic tracks**; resuming calls getUserMedia again.
+  Start/pause are serialized. VAD assets (worklet, `silero_vad_v5.onnx`, onnxruntime-web wasm/mjs) are self-hosted
+  under `/vad/` by `vite-plugin-static-copy` (`vite.config.js`); the ORT wasm is 14 MB (first load only, then cached).
+- **State machine** `lib/micMachine.js` (framework-free, `COOLDOWN_MS` 3000): off / listening / processing / speaking /
+  cooldown; only listening captures; speech ending in any other state is dropped. Every `say()` (voice, typed,
+  broadcast, routine, voice test) calls `speakStart()` before TTS loads; the reply lifecycle leaving `speaking` (and no
+  other say pending) calls `speakEnd()` → 3.0 s cooldown → listening. Wired in `hooks/useVoiceLoop.js`.
+- **Upload**: each segment → 16 kHz mono 16-bit WAV (`lib/wav.js`) → `POST /api/respond` multipart
+  `{audio, source:'voice'}` (`terminalFetch` lets FormData set its boundary). `meta.no_speech` → back to listening.
+- **Server STT** `server/src/services/sttService.js`: Gemini `generateContent` with the WAV inline, JSON schema
+  `{transcript}`, temperature 0, prompt asks for the exact words in the patient's language and an empty transcript
+  for silence/noise. Model `GEMINI_STT_MODEL` else `GEMINI_MODEL` (checked: `gemini-3.5-flash-lite` accepts audio, so
+  no switch to a flash model was needed; `gemini-3.5-flash` invented a sentence from silence; `gemini-3.1-flash-lite`
+  timed out). `isJunkTranscript()` drops empty, punctuation-only, noise tags (`[noise]`, `(silence)`, …) and
+  filler-only ("hmm", "uh um"). Timeout `STT_TIMEOUT_MS` (default 6000). Key in the `x-goog-api-key` header only.
+- **`routes/respond.js`**: multer memory storage (2 MB, 1 file); junk/empty → `{transcript:'', text:null, parts:[],
+  meta:{no_speech, stt_ms}}`, no chain, nothing logged; STT error → 502 `{error, code}`, no reply; otherwise the
+  unchanged chain + fallbacks on the transcript, logged `source: voice`, `{transcript, text, parts, meta:{…, stt_ms}}`.
+  The buffer is dropped right after transcription (no clip storage exists; FR-4.2.5). Chain/validator/prompts untouched.
+- **Waveform**: still while idle/listening/processing; moves only in the reply's `speaking` phase (real audio analyser).
+- **Dev overlay** (`?dev=1`, width capped): mic state, VAD probability, last transcript, per-stage ms; console
+  `[voice] timings ms`. Mic denied / missing → mic `off`, typed input opens automatically, red `mic: <reason>`.
+- `hooks/useAudioMode.js` (unused Web Speech hook) deleted.
+- **Tests**: `client/src/lib/__tests__/micMachine.test.js` (9: full loop, 3.0 s cooldown, drops during
+  processing/speaking/cooldown, broadcast while listening, cooldown restart, no-mic). `server/src/__tests__/voice-b.test.js`
+  (26, real Express + multipart: transcript-only chain input, junk → no reply/no log, STT 502, 413/400, typed JSON,
+  `isJunkTranscript`, Gemini request shape/key redaction).
+
+### Part B verification
+- `cd server && npm test` → 8 suites, 221 passed, 12 skipped. `cd client && npm test` → 3 files, 35 passed. Build OK.
+- Headless Chrome with a fake microphone playing a looped WAV (ElevenLabs-generated "Timothy di mana? Aku mau
+  pulang.", 3 s silence before, 26 s after), live backend + Gemini + ElevenLabs, sampled every 100 ms for 50 s:
+  listening (1 live track) → processing (0 tracks) → speaking (TTS loading, then audio; bars moving) → cooldown at
+  31.1 s → listening at 34.2 s (3.1 s) → the next loop of the clip heard → processing → speaking. **0 samples with a
+  live mic track outside listening.** Heard "Timoti di mana? Aku mau pulang."; reply spoken in the greeting box.
+  Mic denied → `off`, typed input shown, overlay "mic: microphone permission denied". No console errors.
+- The running dev server on :5173 was started before this session and did not pick up `vite.config.js`; the check
+  ran on a second Vite (:5174). Restart `npm run dev` to get the `/vad/` assets.
+
+### Measured latency (Part B, this machine → Gemini / ElevenLabs over the internet)
+
+| stage | target | measured |
+|---|---|---|
+| VAD end → transcript (upload + server STT) | ≤ 800 ms (FR-4.2.2) | 2157 ms in the warm browser run (server STT 1775 ms); STT alone 1.4–2.5 s in 12 direct calls. **Misses** |
+| transcript → reply (LLM chain) | ≤ ~2 s | 789 ms warm (the LLM budget is `LLM_TIMEOUT_MS`). Meets |
+| reply → audio start (TTS) | ≤ 500 ms (FR-4.4.1) | 1646 ms in the browser with `eleven_multilingual_v2` (first byte ~1.1 s + buffering). **Misses**; `eleven_flash_v2_5` first byte ~140 ms |
+| VAD end → audio start | | 4591 ms warm; the first (cold) cycle took ~5.4 s to the reply alone |
+
+The VAD end itself comes 1.4 s after the last word (`redemptionMs` default, kept so slow speakers aren't cut off).
+STT latency is model/network bound: plain-text vs JSON output and "minimal thinking" made no difference.
+
+### Needs manual testing on the tablet (Part B)
+- Real mic on the tablet (permission prompt over HTTPS, echo cancellation with the speaker, room noise, elderly speech).
+- iPad Safari: getUserMedia after the tap, AudioWorklet VAD, re-acquiring the mic after each reply, audio output
+  volume while the mic is open.
+- That nothing is captured while the reply plays (verified headless via track state, not acoustically).
+- First load time of the 14 MB VAD wasm on the tablet's network.
+
 ---
 
 ## Known bugs / open items
@@ -623,7 +684,8 @@ Gemini returns **404 "models/gemini-2.5-flash-lite is no longer available to new
 ---
 
 ## NEXT
-- **IN PROGRESS (this session)**: Part B microphone (VAD → server STT → reply), then Part C routine scheduler.
+- **IN PROGRESS (this session)**: Part C routine scheduler.
+- Decide on STT latency (Gemini audio 1.4–2.5 s vs the 800 ms target): accept, or move to a streaming STT.
 - Decide the TTS model (`ELEVENLABS_MODEL_ID=eleven_flash_v2_5` meets the 500 ms first-byte target; the default misses it).
 0. Delete the 2026-10-12 test rows (patients/caregivers 9–12, see "Terminal home rework → Test data").
 1. Decide model (item 11: set `GEMINI_MODEL=gemini-3.5-flash-lite`?) and timeout (item 14), fix the fallback shape
@@ -636,7 +698,7 @@ Gemini returns **404 "models/gemini-2.5-flash-lite is no longer available to new
 
 ## Environment variables
 Names only (values live in `server/.env`, never here): `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_STT_MODEL`
-(optional), `LLM_TIMEOUT_MS`, `ELEVENLABS_API_KEY`, `ELEVENLABS_MODEL_ID` (optional), `ELEVENLABS_VOICE_ID_ID_FEMALE`,
+(optional), `STT_TIMEOUT_MS` (optional, default 6000), `LLM_TIMEOUT_MS`, `ELEVENLABS_API_KEY`, `ELEVENLABS_MODEL_ID` (optional), `ELEVENLABS_VOICE_ID_ID_FEMALE`,
 `ELEVENLABS_VOICE_ID_ID_MALE`, `ELEVENLABS_VOICE_ID_EN_FEMALE`, `ELEVENLABS_VOICE_ID_EN_MALE` (legacy
 `ELEVENLABS_VOICE_ID_ID` / `_EN` still read as fallback), `JWT_SECRET`, `DATABASE_URL`, `CLIENT_ORIGIN`, `API_ORIGIN`,
 `PORT`, `TZ`.

@@ -95,7 +95,10 @@ Caregiver JWT (`Authorization: Bearer`), ownership checked on every route (404 u
 - `GET /api/patient/status?patientId` → {status: {patient_id, patient_name, language, device: {id, name, online, battery, last_seen_at} | null}}
 - `GET /api/interactions?patientId&limit=20(≤100)&before=<id>` → {interactions (newest first), next_before}
 Terminal (`x-device-token`): `GET /api/device/context` → {context: {patient_name, daily, permanent}, language, updated_at};
-`GET /api/device/settings` → {settings}; `POST /api/respond` {transcript, source}.
+`GET /api/device/settings` → {settings}; `POST /api/respond` {transcript, source} (JSON) or multipart {audio (16 kHz mono WAV),
+source:'voice'} → server STT (Gemini audio, `GEMINI_STT_MODEL` else `GEMINI_MODEL`) → chain → {transcript, text, parts, meta};
+empty/junk transcript → {transcript:'', text:null, parts:[], meta:{no_speech}} (no reply, not logged); STT failure → 502.
+The audio never reaches the LLM chain and is dropped right after transcription (no clip storage exists).
 Word cap for LLM output = min(25, round(max_speech_seconds × 2.5)); 0 → 25. Enforced on top of the 25-word validator.
 
 ## Figma (source of truth) — file key mIwuaN6ddcgRRLwa9TyMTp

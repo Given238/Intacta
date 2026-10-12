@@ -22,7 +22,12 @@ export async function terminalFetch(path, { headers, ...options } = {}) {
   try {
     res = await fetch(`${API}${path}`, {
       ...options,
-      headers: { 'Content-Type': 'application/json', ...headers, 'x-device-token': token },
+      // FormData (voice upload) sets its own multipart Content-Type with the boundary
+      headers: {
+        ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+        ...headers,
+        'x-device-token': token,
+      },
     })
   } catch (netErr) {
     throw new TerminalApiError(`network (${netErr.message})`, { code: 'network' })

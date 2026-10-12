@@ -6,9 +6,11 @@ import './index.css'
 
 import { useSocket } from './hooks/useSocket'
 import { useReplyLifecycle } from './hooks/useReplyLifecycle'
+import { useVoiceLoop } from './hooks/useVoiceLoop'
 import { terminalFetch } from './lib/terminalApi'
 import { replyTextOf } from './lib/replyLifecycle'
 import { speak, unlockAudio } from './lib/speaker'
+import { requestMic } from './lib/voiceInput'
 
 import StartGate from './components/StartGate'
 import Home      from './pages/Home'
@@ -60,6 +62,7 @@ export default function App() {
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
   const [volumeDb,      setVolumeDb]      = useState(65)
   const [ttsError,      setTtsError]      = useState(null) // dev overlay: why the last reply used browser speech
+  const [micStream,     setMicStream]     = useState(null) // Promise<MediaStream>, requested inside the Start tap
   const navigateRef = useRef(null)
 
   const { socket } = useSocket(deviceToken)
@@ -76,19 +79,37 @@ export default function App() {
     return id
   }, [present])
 
+  /* ── Mic: VAD → server STT → reply; muted while anything is spoken + 3.0 s cooldown (FR-4.2.4) ── */
+  const sayRef = useRef(null)
+  const pendingSaysRef = useRef(0)
+  const phaseRef = useRef(phase)
+  phaseRef.current = phase
+  const { micState, micInfo, micUnavailable, speakStart, speakAbandoned } =
+    useVoiceLoop({ micStream, phase, sayRef, pendingSaysRef })
+
   /* ── Speak + show: ElevenLabs via /api/tts on the shared <audio>, else browser speech ── */
   const voiceRef = useRef({})
   voiceRef.current = { deviceToken, language, playbackSpeed, volumeDb, noText: t('response.noText') }
   const say = useCallback(async ({ text, parts, source, playbackSpeed: speed }) => {
     const v = voiceRef.current
     const shown = replyTextOf({ text, parts }) || v.noText
-    const result = await speak(shown, {
-      deviceToken:   v.deviceToken,
-      language:      v.language,
-      playbackSpeed: speed || v.playbackSpeed,
-      volumeDb:      v.volumeDb,
-    })
-    if (result.mode === 'cancelled') return null
+    pendingSaysRef.current++
+    speakStart() // mic stops before the first sound
+    let result
+    try {
+      result = await speak(shown, {
+        deviceToken:   v.deviceToken,
+        language:      v.language,
+        playbackSpeed: speed || v.playbackSpeed,
+        volumeDb:      v.volumeDb,
+      })
+    } finally {
+      pendingSaysRef.current--
+    }
+    if (result.mode === 'cancelled') {
+      speakAbandoned(phaseRef.current)
+      return null
+    }
     if (result.mode === 'audio') {
       setTtsError(null)
       return presentReply({ text: shown, source, audioEl: result.audioEl })
@@ -96,11 +117,15 @@ export default function App() {
     console.warn('tts fallback to browser speech:', result.reason)
     setTtsError(result.reason)
     return presentReply({ text: shown, source, speech: result.speech || undefined, playbackSpeed: speed })
-  }, [presentReply])
+  }, [presentReply, speakStart, speakAbandoned])
+  sayRef.current = say
 
   /* ── Start gate ── */
   const handleStart = useCallback(() => {
     unlockAudio() // synchronously inside the tap
+    const mic = requestMic() // also inside the tap (iOS needs the gesture)
+    mic.catch(() => {}) // handled in useVoiceLoop
+    setMicStream(mic)
     setStarted(true)
     emitDeviceStatus(true)
   }, [])
@@ -251,6 +276,9 @@ export default function App() {
         highlightIndex={highlightIndex}
         say={say}
         ttsError={ttsError}
+        micState={micState}
+        micInfo={micInfo}
+        micUnavailable={micUnavailable}
         navigateRef={navigateRef}
         socket={socket}
         deviceToken={deviceToken}
@@ -261,9 +289,11 @@ export default function App() {
 }
 
 /* ── Routes sub-component (inside BrowserRouter) ── */
-function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, regError, context, phase, reply, highlightIndex, say, ttsError, navigateRef, socket, deviceToken, patientId }) {
+function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, regError, context, phase, reply, highlightIndex, say, ttsError, micState, micInfo, micUnavailable, navigateRef, socket, deviceToken, patientId }) {
   const navigate = useNavigate()
   const { typedOpen, setTypedOpen, debugOpen } = useDevShortcuts()
+  // No microphone (denied / missing): the typed input is the way to talk to the terminal.
+  const showTyped = typedOpen || micUnavailable
 
   useEffect(() => {
     navigateRef.current = navigate
@@ -285,8 +315,8 @@ function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, r
               phase={phase}
               reply={reply}
               highlightIndex={highlightIndex}
-              typedSlot={typedOpen && (
-                <TypedUtterance onReply={say} onClose={DEV_MODE ? null : () => setTypedOpen(false)} />
+              typedSlot={showTyped && (
+                <TypedUtterance onReply={say} onClose={DEV_MODE || micUnavailable ? null : () => setTypedOpen(false)} />
               )}
             />
           }
@@ -320,6 +350,8 @@ function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, r
           patientId={patientId}
           context={context}
           ttsError={ttsError}
+          micState={micState}
+          micInfo={micInfo}
         />
       )}
     </>
@@ -420,7 +452,7 @@ function TerminalErrorScreen({ onHome }) {
 }
 
 /* ── Debug overlay ── */
-function DebugOverlay({ socket, phase, language, deviceToken, patientId, context, ttsError }) {
+function DebugOverlay({ socket, phase, language, deviceToken, patientId, context, ttsError, micState, micInfo }) {
   const location = useLocation()
   const [connected, setConnected] = useState(!!socket?.connected)
 
@@ -446,18 +478,28 @@ function DebugOverlay({ socket, phase, language, deviceToken, patientId, context
     ['context', context ? 'synced' : '-'],
     ['dev=1',   DEV_MODE ? 'on' : 'off'],
     ['voice',   ttsError ? 'browser speech' : 'elevenlabs'],
+    ['mic',     micState],
+    ['vad p',   (micInfo?.prob ?? 0).toFixed(2)],
+    ['heard',   micInfo?.transcript ? `"${micInfo.transcript}"` : '-'],
   ]
+  const tm = micInfo?.timings
+  if (tm) {
+    rows.push(['ms', tm.noSpeech
+      ? `seg ${tm.segmentMs} · vad→stt ${tm.vadToTranscriptMs} (stt ${tm.sttMs}) · no speech`
+      : `seg ${tm.segmentMs} · vad→transcript ${tm.vadToTranscriptMs} (stt ${tm.sttMs}) · →reply ${tm.transcriptToReplyMs} · →audio ${tm.replyToAudioMs} · total ${tm.totalMs}`])
+  }
 
   return (
     <div
-      className="fixed bottom-2 left-2 px-3 py-2 rounded bg-black/70 text-white font-mono text-xs pointer-events-none"
+      className="fixed bottom-2 left-2 max-w-[255px] px-3 py-2 rounded bg-black/70 text-white font-mono text-xs pointer-events-none break-words"
       style={{ zIndex: 1000 }}
       aria-hidden="true"
     >
       {rows.map(([k, v]) => (
         <div key={k}><span className="opacity-60">{k}</span> {v}</div>
       ))}
-      {ttsError && <div className="text-red-300 max-w-[360px] whitespace-normal">tts: {ttsError}</div>}
+      {ttsError && <div className="text-red-300 whitespace-normal">tts: {ttsError}</div>}
+      {micInfo?.error && <div className="text-red-300 whitespace-normal">mic: {micInfo.error}</div>}
     </div>
   )
 }
