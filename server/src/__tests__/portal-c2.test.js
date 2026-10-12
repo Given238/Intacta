@@ -78,15 +78,3 @@ describe('GET/PUT /api/caregiver', () => {
   });
 });
 
-describe('GET /api/settings/voices', () => {
-  const saved = { ...process.env };
-  afterEach(() => { process.env = { ...saved }; });
-
-  it('lists only the configured voice IDs', () => {
-    process.env.ELEVENLABS_VOICE_ID_ID = 'voice-id-1';
-    delete process.env.ELEVENLABS_VOICE_ID_EN;
-    const res = mockRes();
-    caregiverCtl.getVoices({}, res);
-    expect(res.body).toEqual({ voices: [{ language: 'id', id: 'voice-id-1' }] });
-  });
-});

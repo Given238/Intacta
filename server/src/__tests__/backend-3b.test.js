@@ -246,7 +246,7 @@ describe('GET/PUT /api/settings', () => {
     const res = makeRes();
     await settingsCtl.getSettings({ caregiverId: 1, validQuery: { patientId: 5 } }, res);
     expect(res.json).toHaveBeenCalledWith({ settings: {
-      strict_validation: true, max_speech_seconds: 10, voice_id: null,
+      strict_validation: true, max_speech_seconds: 10, voice_gender: 'female',
       playback_speed: 1, volume_db: 65, updated_at: null,
     } });
   });
@@ -441,7 +441,7 @@ describe('Socket voice:test', () => {
   it('emits voice:test with the patient\'s voice settings in their language', async () => {
     routeQueries([
       owns(1),
-      [/patient_settings/, [{ voice_id: 'v1', playback_speed: '0.90', volume_db: 62 }]],
+      [/patient_settings/, [{ voice_id: 'legacy-id', voice_gender: 'male', playback_speed: '0.90', volume_db: 62 }]],
       [/SELECT name, language FROM patients/, [{ name: 'Ibu', language: 'id' }]],
     ]);
     const io = makeIO();
@@ -449,7 +449,7 @@ describe('Socket voice:test', () => {
     await handleVoiceTest(io, { caregiverId: 1, emit: jest.fn() })({ patientId: 5 }, ack);
     expect(io.emitted).toEqual([{
       room: 'patient:5', event: 'voice:test', volatile: false,
-      data: { text: 'Halo. Seperti inilah suara saya.', language: 'id', voice_id: 'v1', playback_speed: 0.9, volume_db: 62 },
+      data: { text: 'Halo. Seperti inilah suara saya.', language: 'id', voice_gender: 'male', playback_speed: 0.9, volume_db: 62 },
     }]);
     expect(ack).toHaveBeenCalledWith({ success: true });
   });

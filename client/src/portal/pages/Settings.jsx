@@ -7,7 +7,7 @@
  *   Audio:  mic (107:1504) + voice pill with arrow (107:1586) · speed 0.85–1.0x · volume 60–70 dB · "Test Voice" pill
  *   Account: "Caregiver profile", Name / Email, red "Log Out" pill
  *
- * Data: GET/PUT /api/settings (PUT → server emits settings:sync to the tablet), GET /api/settings/voices,
+ * Data: GET/PUT /api/settings (PUT → server emits settings:sync to the tablet), GET /api/voices (options only, never voice IDs),
  * GET/PUT /api/caregiver, GET /api/patient/status + live device:status. Saves on release / blur / change.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -20,7 +20,7 @@ import micIcon       from '../../assets/icons/mic.svg'
 import arrowIcon     from '../../assets/icons/keyboard-arrow-up.svg'
 import onlineDot     from '../../assets/icons/status-dot-online.svg'
 import i18n from '../../i18n'
-import { portalFetch } from '../portalApi'
+import { portalFetch, portalFetchBlob } from '../portalApi'
 import { getSession, clearSession } from '../session'
 import { usePortalLoad, sessionPatientId } from '../usePortalLoad'
 import { usePortalSocket, emitWithAck } from '../usePortalSocket'
@@ -37,7 +37,7 @@ async function loadSettings() {
   const [{ settings }, { status }, { voices }, { caregiver }] = await Promise.all([
     portalFetch(`/api/settings?patientId=${pid}`),
     portalFetch(`/api/patient/status?patientId=${pid}`),
-    portalFetch('/api/settings/voices'),
+    portalFetch('/api/voices'),
     portalFetch('/api/caregiver'),
   ])
   return { settings, status, voices: voices || [], caregiver }
@@ -293,13 +293,13 @@ function AudioCard({ settings, voices, language, socket, online, state, setLocal
   const [testing, setTesting] = useState(false)
   const [testNote, setTestNote] = useState(null)
 
-  const voiceOptions = [
-    { id: '', label: t('portal.settings.audio.voiceDefault') },
-    ...voices.map(v => ({ id: v.id, label: t(`portal.settings.audio.voice.${v.language}`, { defaultValue: v.language }) })),
-  ]
-  if (settings.voice_id && !voices.some(v => v.id === settings.voice_id)) {
-    voiceOptions.push({ id: settings.voice_id, label: t('portal.settings.audio.voiceCustom') })
-  }
+  // Female / Male for the patient's language; options without a configured voice are disabled.
+  const gender = settings.voice_gender || 'female'
+  const voiceOptions = ['female', 'male'].map(g => {
+    const available = voices.some(v => v.language === language && v.gender === g && v.available)
+    const label = t(`portal.settings.audio.gender.${g}`)
+    return { value: g, label: available ? label : `${label} (${t('portal.settings.audio.voiceUnavailable')})`, available }
+  })
 
   const testVoice = async () => {
     setTesting(true)
@@ -309,13 +309,13 @@ function AudioCard({ settings, voices, language, socket, online, state, setLocal
         await emitWithAck(socket, 'voice:test', { patientId: sessionPatientId(getSession()) })
         setTestNote(t('portal.settings.audio.testSent'))
       } else {
-        speakLocally(language, settings)
+        await speakLocally(language, settings)
         setTestNote(t('portal.settings.audio.testLocal'))
       }
     } catch (err) {
       console.error('voice test failed:', err.message)
       try {
-        speakLocally(language, settings)
+        await speakLocally(language, settings)
         setTestNote(t('portal.settings.audio.testLocal'))
       } catch {
         onToast(t('portal.settings.audio.testFailed'))
@@ -333,16 +333,18 @@ function AudioCard({ settings, voices, language, socket, online, state, setLocal
         <span className="relative inline-flex items-center">
           <select
             id="voice"
-            value={settings.voice_id || ''}
+            value={gender}
             onChange={e => {
-              const previous = { voice_id: settings.voice_id }
-              const voice_id = e.target.value || null
-              setLocal({ voice_id })
-              save({ voice_id }, previous)
+              const previous = { voice_gender: gender }
+              const voice_gender = e.target.value
+              setLocal({ voice_gender })
+              save({ voice_gender }, previous)
             }}
             className="text-body-light min-h-[32px] appearance-none rounded-[10px] bg-[#5e6d77] py-[4px] pl-[12px] pr-[28px] text-[13px] text-white outline-none focus-visible:ring-2 focus-visible:ring-[#54aed3]"
           >
-            {voiceOptions.map(o => <option key={o.id || 'default'} value={o.id}>{o.label}</option>)}
+            {voiceOptions.map(o => (
+              <option key={o.value} value={o.value} disabled={!o.available && o.value !== gender}>{o.label}</option>
+            ))}
           </select>
           <img src={arrowIcon} alt="" width={6.5} height={4.00833} className="pointer-events-none absolute right-[11px] rotate-180 invert" />
         </span>
@@ -381,14 +383,28 @@ function AudioCard({ settings, voices, language, socket, online, state, setLocal
   )
 }
 
-/* Browser speech synthesis fallback when no tablet is online (rate = playback speed, 60–70 dB → volume 0.5–1) */
-function speakLocally(language, settings) {
-  if (!('speechSynthesis' in window)) throw new Error('speechSynthesis unsupported')
+/* No tablet online: play the tablet's voice here (GET /api/tts with the JWT, saved voice + speed),
+   else browser speech synthesis (rate = playback speed). 60–70 dB → volume 0.5–1. */
+let localAudio = null
+async function speakLocally(language, settings) {
   const text = i18n.getFixedT(language)('portal.settings.audio.testPhrase')
+  const volume = 0.5 + ((Number(settings.volume_db) || 65) - 60) / 20
+  try {
+    const pid = encodeURIComponent(sessionPatientId(getSession()))
+    const blob = await portalFetchBlob(`/api/tts?patientId=${pid}&text=${encodeURIComponent(text)}`)
+    if (localAudio) { localAudio.pause(); URL.revokeObjectURL(localAudio.src) }
+    localAudio = new Audio(URL.createObjectURL(blob))
+    localAudio.volume = volume
+    await localAudio.play()
+    return
+  } catch (err) {
+    console.warn('tts unavailable, using browser speech:', err.message)
+  }
+  if (!('speechSynthesis' in window)) throw new Error('speechSynthesis unsupported')
   const u = new SpeechSynthesisUtterance(text)
   u.lang   = language === 'id' ? 'id-ID' : 'en-US'
   u.rate   = Number(settings.playback_speed) || 1
-  u.volume = 0.5 + ((Number(settings.volume_db) || 65) - 60) / 20
+  u.volume = volume
   window.speechSynthesis.cancel()
   window.speechSynthesis.speak(u)
 }

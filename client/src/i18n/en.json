@@ -7,7 +7,7 @@
   "thisIsYourCode": "This is your code",
   "useThisToConnect": "Use this to connect with Caregiver's side",
   "greeting": "Hi, I’m Intacta and here to help you.",
-  "start": "Start",
+  "start": "Tap to start",
   "startHint": "Tap anywhere to begin",
   "pairingTitle": "Waiting for caregiver…",
   "pairingExpired": "Code expired — tap Caregiver mode to regenerate",
@@ -241,11 +241,10 @@
       "audio": {
         "title": "Audio settings",
         "voiceLabel": "Tablet voice",
-        "voiceDefault": "Default voice",
-        "voiceCustom": "Custom voice",
-        "voice": {
-          "id": "Indonesian voice",
-          "en": "English voice"
+        "voiceUnavailable": "not set up",
+        "gender": {
+          "female": "Female voice",
+          "male": "Male voice"
         },
         "speed": "Playback speed",
         "volume": "Volume",

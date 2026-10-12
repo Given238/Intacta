@@ -185,7 +185,8 @@ const VOICE_TEST_TEXT = {
   id: 'Halo. Seperti inilah suara saya.',
 };
 
-/** caregiver → server → terminal: voice:test { patientId } → { text, language, voice_id, playback_speed, volume_db } */
+/** caregiver → server → terminal: voice:test { patientId } → { text, language, voice_gender, playback_speed, volume_db }
+ *  (the terminal speaks it through /api/tts; voice IDs never leave the server) */
 function handleVoiceTest(io, socket) {
   return async (data, ack) => {
     const { patientId } = data || {};
@@ -199,7 +200,7 @@ function handleVoiceTest(io, socket) {
       io.to(`patient:${patientId}`).emit('voice:test', {
         text:           VOICE_TEST_TEXT[language] || VOICE_TEST_TEXT.en,
         language,
-        voice_id:       settings.voice_id,
+        voice_gender:   settings.voice_gender,
         playback_speed: settings.playback_speed,
         volume_db:      settings.volume_db,
       });

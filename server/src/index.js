@@ -13,6 +13,7 @@ const deviceRoutes    = require('./routes/device');
 const routinesRoutes  = require('./routes/routines');
 const respondRoutes   = require('./routes/respond');
 const devicesRoutes  = require('./routes/devices');
+const ttsRoutes      = require('./routes/tts');
 const setupSocket    = require('./socket');
 
 const app    = express();
@@ -50,6 +51,7 @@ app.use('/api/routines', routinesRoutes);
 app.use('/api/respond',  respondRoutes);
 app.use('/api/devices',  devicesRoutes);
 app.use('/api/device',   deviceRoutes);
+app.use('/api',          ttsRoutes);
 app.use('/api',          patientRoutes);
 
 app.use((req, res) => { res.status(404).json({ error: 'Not found' }); });

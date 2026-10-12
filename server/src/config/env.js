@@ -34,12 +34,18 @@ const envSchema = z.object({
   // LLM
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL:   z.string().default('gemini-2.5-flash-lite'),
+  GEMINI_STT_MODEL: z.string().optional(), // speech-to-text model; defaults to GEMINI_MODEL
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(1200),
 
-  // Voice
-  ELEVENLABS_API_KEY:    z.string().optional(),
-  ELEVENLABS_VOICE_ID_ID: z.string().optional(),
-  ELEVENLABS_VOICE_ID_EN: z.string().optional(),
+  // Voice (all optional: /api/tts answers 503 when the key or the voice is missing)
+  ELEVENLABS_API_KEY:   z.string().optional(),
+  ELEVENLABS_MODEL_ID:  z.string().default('eleven_multilingual_v2'),
+  ELEVENLABS_VOICE_ID_ID_FEMALE: z.string().optional(),
+  ELEVENLABS_VOICE_ID_ID_MALE:   z.string().optional(),
+  ELEVENLABS_VOICE_ID_EN_FEMALE: z.string().optional(),
+  ELEVENLABS_VOICE_ID_EN_MALE:   z.string().optional(),
+  ELEVENLABS_VOICE_ID_ID: z.string().optional(), // legacy, one voice per language
+  ELEVENLABS_VOICE_ID_EN: z.string().optional(), // legacy
 });
 
 /**

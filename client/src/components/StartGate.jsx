@@ -1,72 +1,54 @@
+/**
+ * StartGate — one-time full-screen "Tap to start" on every page load (not persisted).
+ *
+ * Browsers only allow audio playback and the microphone after a real user gesture; the tap is that
+ * gesture (App's handleStart unlocks audio synchronously inside it). Looks like the home screen:
+ * same stage, mesh, header and still waveform, with the prompt in the greeting's box and style.
+ */
 import { useTranslation } from 'react-i18next'
-import { Activity } from 'lucide-react'
-import logoSvg from '../assets/logo.svg'
+import TerminalStage from './TerminalStage'
+import MeshBackground from './MeshBackground'
+import Header from './Header'
+import WaveformBars from './WaveformBars'
+import { TEXT_SHADOW } from '../lib/contrast'
+import { REPLY_BOX, FONT_MAX, LINE_HEIGHT } from '../lib/replyLayout'
 
 export default function StartGate({ onStart, language }) {
   const { t } = useTranslation()
 
   return (
     <div
-      className="w-full h-full flex flex-col items-center justify-center cursor-pointer select-none relative overflow-hidden"
+      className="fixed inset-0 cursor-pointer select-none"
       onClick={onStart}
+      onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && onStart()}
       role="button"
       tabIndex={0}
-      onKeyDown={e => e.key === 'Enter' && onStart()}
       aria-label={t('start')}
     >
-      <div className="absolute inset-0" style={{ zIndex: 0 }}>
-        <div className="absolute inset-0" style={{ background: '#05668d', opacity: 0.6 }} />
-        <div
-          className="absolute inset-0"
+      <TerminalStage>
+        <MeshBackground opacity={0.88} />
+        <Header language={language} />
+        <WaveformBars />
+        <p
+          className="start-pulse"
           style={{
-            background: 'radial-gradient(ellipse at 80% 20%, #ff6b6b55 0%, transparent 60%), radial-gradient(ellipse at 20% 80%, #6dd5a055 0%, transparent 60%), radial-gradient(ellipse at 50% 50%, #f7b73133 0%, transparent 70%)',
+            position:   'absolute',
+            left:       REPLY_BOX.left,
+            top:        REPLY_BOX.top,
+            width:      REPLY_BOX.width,
+            margin:     0,
+            fontFamily: '"Inter", system-ui, sans-serif',
+            fontWeight: 800,
+            fontSize:   FONT_MAX,
+            lineHeight: LINE_HEIGHT,
+            color:      'white',
+            textAlign:  'center',
+            textShadow: TEXT_SHADOW,
           }}
-        />
-      </div>
-
-      {/* Logo */}
-      <div className="flex items-center gap-3 mb-4 relative z-10">
-        <img src={logoSvg} alt="" style={{ width: 'clamp(48px,7vw,80px)', height: 'clamp(64px,9.5vw,107px)' }} />
-        <span
-          className="font-brand text-white"
-          style={{ fontSize: 'clamp(40px, 6vw, 72px)', fontWeight: 800, lineHeight: 1.1 }}
-        >
-          {t('brand')}
-        </span>
-      </div>
-
-      <p
-        className="font-ui text-white mb-16 opacity-80"
-        style={{ fontSize: 'clamp(16px, 2.5vw, 24px)', fontWeight: 500 }}
-      >
-        {t('tagline')}
-      </p>
-
-      {/* Large start button */}
-      <div className="flex flex-col items-center gap-4">
-        <div
-          className="rounded-full flex items-center justify-center shadow-xl"
-          style={{
-            background: 'rgba(5,102,141,0.85)',
-            width:  'clamp(140px, 18vw, 220px)',
-            height: 'clamp(140px, 18vw, 220px)',
-          }}
-        >
-          <Activity size={72} color="white" strokeWidth={1.5} className="animate-pulse" />
-        </div>
-        <span
-          className="font-ui text-white font-semibold"
-          style={{ fontSize: 'clamp(28px, 4vw, 48px)', fontWeight: 700 }}
         >
           {t('start')}
-        </span>
-        <span
-          className="font-ui text-white opacity-60"
-          style={{ fontSize: 'clamp(14px, 2vw, 20px)' }}
-        >
-          {t('startHint')}
-        </span>
-      </div>
+        </p>
+      </TerminalStage>
     </div>
   )
 }

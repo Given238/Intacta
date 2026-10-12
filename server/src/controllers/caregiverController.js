@@ -1,5 +1,5 @@
 /**
- * caregiverController.js — GET/PUT /api/caregiver (own profile) and GET /api/settings/voices.
+ * caregiverController.js — GET/PUT /api/caregiver (own profile).
  */
 
 const caregiverService = require('../services/caregiverService');
@@ -31,8 +31,4 @@ async function putMe(req, res) {
   }
 }
 
-function getVoices(req, res) {
-  return res.json({ voices: caregiverService.listVoices() });
-}
-
-module.exports = { getMe, putMe, getVoices };
+module.exports = { getMe, putMe };

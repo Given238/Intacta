@@ -46,7 +46,8 @@ export function proceduralSource() {
 let sharedCtx = null
 const nodesByElement = new WeakMap()
 
-function audioContext() {
+/** Shared AudioContext (null without Web Audio). Resume it inside a user gesture (StartGate). */
+export function audioContext() {
   if (sharedCtx) return sharedCtx
   const Ctx = window.AudioContext || window.webkitAudioContext
   if (!Ctx) return null

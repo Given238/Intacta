@@ -7,6 +7,8 @@ import './index.css'
 import { useSocket } from './hooks/useSocket'
 import { useReplyLifecycle } from './hooks/useReplyLifecycle'
 import { terminalFetch } from './lib/terminalApi'
+import { replyTextOf } from './lib/replyLifecycle'
+import { speak, unlockAudio } from './lib/speaker'
 
 import StartGate from './components/StartGate'
 import Home      from './pages/Home'
@@ -44,20 +46,10 @@ function useDevShortcuts() {
   return { typedOpen, setTypedOpen, debugOpen }
 }
 
-/* Audio element for a server reply's audio_url (ElevenLabs, Phase 5). crossOrigin so the
-   waveform's AnalyserNode can read it when the API is on another origin. */
-function playAudio(url) {
-  if (!url) return null
-  const audio = new Audio()
-  audio.crossOrigin = 'anonymous'
-  audio.src = url
-  audio.play().catch(e => console.error('audio play failed:', e.message))
-  return audio
-}
-
 export default function App() {
   const { t } = useTranslation()
-  const [started,     setStarted]     = useState(() => !!localStorage.getItem('terminal_started'))
+  // Start gate on every load: audio (and the mic) need a real user gesture per page session.
+  const [started,     setStarted]     = useState(false)
   const [deviceToken, setDeviceToken] = useState(() => localStorage.getItem('device_token') || null)
   const [patientId,   setPatientId]   = useState(() => localStorage.getItem('patient_id') || null)
   const [language,    setLanguage]    = useState(() => localStorage.getItem('terminal_language') || 'en')
@@ -66,25 +58,49 @@ export default function App() {
   const [regError,   setRegError]   = useState(null)
   const [context,    setContext]     = useState(null)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
+  const [volumeDb,      setVolumeDb]      = useState(65)
+  const [ttsError,      setTtsError]      = useState(null) // dev overlay: why the last reply used browser speech
   const navigateRef = useRef(null)
 
   const { socket } = useSocket(deviceToken)
 
-  /* ── One reply path: typed/voice (/api/respond, response:ready), broadcast, routine, voice test ── */
+  /* ── One reply path (via say below): typed/voice (/api/respond, response:ready), broadcast, routine, voice test ── */
   const { phase, reply, presentReply: present, highlightIndex } = useReplyLifecycle({
     playbackSpeed,
     fallbackText: t('response.noText'),
   })
-  const presentReply = useCallback(({ text, parts, audioEl, source, playbackSpeed: speed }) => {
-    const id = present({ text, parts, audioEl, source, ...(speed ? { playbackSpeed: speed } : {}) })
+  const presentReply = useCallback(({ text, parts, audioEl, speech, source, playbackSpeed: speed }) => {
+    const id = present({ text, parts, audioEl, speech, source, ...(speed ? { playbackSpeed: speed } : {}) })
     // The reply is shown on the home screen; leave the pairing screen if it is open.
     if (id && window.location.pathname !== '/terminal') navigateRef.current?.('/terminal')
     return id
   }, [present])
 
+  /* ── Speak + show: ElevenLabs via /api/tts on the shared <audio>, else browser speech ── */
+  const voiceRef = useRef({})
+  voiceRef.current = { deviceToken, language, playbackSpeed, volumeDb, noText: t('response.noText') }
+  const say = useCallback(async ({ text, parts, source, playbackSpeed: speed }) => {
+    const v = voiceRef.current
+    const shown = replyTextOf({ text, parts }) || v.noText
+    const result = await speak(shown, {
+      deviceToken:   v.deviceToken,
+      language:      v.language,
+      playbackSpeed: speed || v.playbackSpeed,
+      volumeDb:      v.volumeDb,
+    })
+    if (result.mode === 'cancelled') return null
+    if (result.mode === 'audio') {
+      setTtsError(null)
+      return presentReply({ text: shown, source, audioEl: result.audioEl })
+    }
+    console.warn('tts fallback to browser speech:', result.reason)
+    setTtsError(result.reason)
+    return presentReply({ text: shown, source, speech: result.speech || undefined, playbackSpeed: speed })
+  }, [presentReply])
+
   /* ── Start gate ── */
   const handleStart = useCallback(() => {
-    localStorage.setItem('terminal_started', '1')
+    unlockAudio() // synchronously inside the tap
     setStarted(true)
     emitDeviceStatus(true)
   }, [])
@@ -149,10 +165,14 @@ export default function App() {
     return () => socket.off('device:paired', onPair)
   }, [socket])
 
-  /* ── context:sync ── */
+  /* ── context:sync (also carries the patient's language) ── */
   useEffect(() => {
     if (!socket) return
-    const onSync = (payload) => setContext(payload)
+    const onSync = (body) => {
+      setContext(body)
+      const lang = body?.payload?.language
+      if (lang === 'id' || lang === 'en') setLanguage(lang)
+    }
     socket.on('context:sync', onSync)
     return () => socket.off('context:sync', onSync)
   }, [socket])
@@ -163,6 +183,8 @@ export default function App() {
     const onSettings = ({ payload } = {}) => {
       const speed = Number(payload?.playback_speed)
       if (speed > 0) setPlaybackSpeed(speed)
+      const vol = Number(payload?.volume_db)
+      if (vol >= 60 && vol <= 70) setVolumeDb(vol)
     }
     socket.on('settings:sync', onSettings)
     return () => socket.off('settings:sync', onSettings)
@@ -171,14 +193,13 @@ export default function App() {
   /* ── Server → terminal replies, all through presentReply ── */
   useEffect(() => {
     if (!socket) return
-    const onResponse = (payload = {}) =>
-      presentReply({ text: payload.text, parts: payload.parts, audioEl: playAudio(payload.audio_url), source: payload.source })
-    // caregiver's typed/dictated message (voice comes in Phase 5)
-    const onBroadcast = ({ text } = {}) => text && presentReply({ text, source: 'broadcast' })
-    const onRoutine = ({ audio_script } = {}) => audio_script && presentReply({ text: audio_script, source: 'routine' })
-    // Settings "Test Voice": text only until the voice loop (Phase 5)
+    const onResponse = (payload = {}) => say({ text: payload.text, parts: payload.parts, source: payload.source })
+    // caregiver's typed/dictated message
+    const onBroadcast = ({ text } = {}) => text && say({ text, source: 'broadcast' })
+    const onRoutine = ({ audio_script } = {}) => audio_script && say({ text: audio_script, source: 'routine' })
+    // Settings "Test Voice": the server already applies the saved voice/speed in /api/tts
     const onVoiceTest = ({ text, playback_speed } = {}) =>
-      text && presentReply({ text, source: 'voice_test', playbackSpeed: Number(playback_speed) || undefined })
+      text && say({ text, source: 'voice_test', playbackSpeed: Number(playback_speed) || undefined })
 
     socket.on('response:ready', onResponse)
     socket.on('broadcast:message', onBroadcast)
@@ -190,7 +211,7 @@ export default function App() {
       socket.off('routine:trigger', onRoutine)
       socket.off('voice:test', onVoiceTest)
     }
-  }, [socket, presentReply])
+  }, [socket, say])
 
   /* ── Battery watcher ── */
   useEffect(() => {
@@ -228,7 +249,8 @@ export default function App() {
         phase={phase}
         reply={reply}
         highlightIndex={highlightIndex}
-        presentReply={presentReply}
+        say={say}
+        ttsError={ttsError}
         navigateRef={navigateRef}
         socket={socket}
         deviceToken={deviceToken}
@@ -239,7 +261,7 @@ export default function App() {
 }
 
 /* ── Routes sub-component (inside BrowserRouter) ── */
-function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, regError, context, phase, reply, highlightIndex, presentReply, navigateRef, socket, deviceToken, patientId }) {
+function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, regError, context, phase, reply, highlightIndex, say, ttsError, navigateRef, socket, deviceToken, patientId }) {
   const navigate = useNavigate()
   const { typedOpen, setTypedOpen, debugOpen } = useDevShortcuts()
 
@@ -264,7 +286,7 @@ function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, r
               reply={reply}
               highlightIndex={highlightIndex}
               typedSlot={typedOpen && (
-                <TypedUtterance onReply={presentReply} onClose={DEV_MODE ? null : () => setTypedOpen(false)} />
+                <TypedUtterance onReply={say} onClose={DEV_MODE ? null : () => setTypedOpen(false)} />
               )}
             />
           }
@@ -297,6 +319,7 @@ function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, r
           deviceToken={deviceToken}
           patientId={patientId}
           context={context}
+          ttsError={ttsError}
         />
       )}
     </>
@@ -397,7 +420,7 @@ function TerminalErrorScreen({ onHome }) {
 }
 
 /* ── Debug overlay ── */
-function DebugOverlay({ socket, phase, language, deviceToken, patientId, context }) {
+function DebugOverlay({ socket, phase, language, deviceToken, patientId, context, ttsError }) {
   const location = useLocation()
   const [connected, setConnected] = useState(!!socket?.connected)
 
@@ -422,6 +445,7 @@ function DebugOverlay({ socket, phase, language, deviceToken, patientId, context
     ['patient', patientId || '-'],
     ['context', context ? 'synced' : '-'],
     ['dev=1',   DEV_MODE ? 'on' : 'off'],
+    ['voice',   ttsError ? 'browser speech' : 'elevenlabs'],
   ]
 
   return (
@@ -433,6 +457,7 @@ function DebugOverlay({ socket, phase, language, deviceToken, patientId, context
       {rows.map(([k, v]) => (
         <div key={k}><span className="opacity-60">{k}</span> {v}</div>
       ))}
+      {ttsError && <div className="text-red-300 max-w-[360px] whitespace-normal">tts: {ttsError}</div>}
     </div>
   )
 }

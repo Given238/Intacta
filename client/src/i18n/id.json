@@ -7,7 +7,7 @@
   "thisIsYourCode": "Ini kode Anda",
   "useThisToConnect": "Gunakan ini untuk terhubung dengan sisi Caregiver",
   "greeting": "Hai, saya Intacta dan di sini untuk membantu Anda.",
-  "start": "Mulai",
+  "start": "Ketuk untuk mulai",
   "startHint": "Ketuk di mana saja untuk memulai",
   "pairingTitle": "Menunggu caregiver…",
   "pairingExpired": "Kode kedaluwarsa — ketuk Mode Caregiver untuk memperbarui",
@@ -241,11 +241,10 @@
       "audio": {
         "title": "Pengaturan audio",
         "voiceLabel": "Suara tablet",
-        "voiceDefault": "Suara bawaan",
-        "voiceCustom": "Suara khusus",
-        "voice": {
-          "id": "Suara Indonesia",
-          "en": "Suara Inggris"
+        "voiceUnavailable": "belum diatur",
+        "gender": {
+          "female": "Suara perempuan",
+          "male": "Suara laki-laki"
         },
         "speed": "Kecepatan putar",
         "volume": "Volume",

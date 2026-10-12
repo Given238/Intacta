@@ -68,7 +68,7 @@ Known limitation (state it in the pitch): code-only caregiver auth is a hackatho
 ## Socket.IO Contract (keep in sync)
 - server → terminal: `context:sync` {payload: {patient_name, language, daily[{id,text}], permanent[{id,text}]}, updated_at}
   (non-volatile; on terminal connect/pair and after every context-items mutation; context is written via REST only)
-- server → terminal: `settings:sync` {payload: {strict_validation, max_speech_seconds, voice_id, playback_speed, volume_db}, updated_at}
+- server → terminal: `settings:sync` {payload: {strict_validation, max_speech_seconds, voice_gender, playback_speed, volume_db}, updated_at}
   (non-volatile; on terminal connect/pair and after PUT /api/settings)
 - terminal → server: `utterance:submit` {transcript}
 - server → terminal: `response:ready` {text, parts[], audio_url?}
@@ -76,7 +76,7 @@ Known limitation (state it in the pitch): code-only caregiver auth is a hackatho
 - server → terminal: `routine:trigger` {audio_script, category}
 - caregiver → server: `broadcast:message` {patientId, text ≤200} → terminal `broadcast:message` {text, created_at}
   (+ `interaction:new` source=broadcast; logged + audited; ack {success})
-- caregiver → server: `voice:test` {patientId} → terminal `voice:test` {text, language, voice_id, playback_speed, volume_db}; ack {success}
+- caregiver → server: `voice:test` {patientId} → terminal `voice:test` {text, language, voice_gender, playback_speed, volume_db}; ack {success}
 - server → terminal: `device:paired` {patient_id, language}
 - terminal → server: `device:status` {online, battery 0-100, power} → portal `device:status` {device_id, online, battery, power}
 Rooms: `device:{id}` (terminal, from connect) and `patient:{id}`. JWT on caregiver sockets (`auth.token`);
@@ -87,7 +87,10 @@ Caregiver JWT (`Authorization: Bearer`), ownership checked on every route (404 u
 - `GET /api/context-items?patientId&scope=daily|permanent` → {items} (daily = today only) · `POST` {patientId, scope, text} → 201
   · `PUT /:id` {text} · `DELETE /:id` → 204. Mutations audit + emit `context:sync`.
 - `GET /api/settings?patientId` → {settings} (defaults if unset) · `PUT` {patientId, ...any setting} → audit + `settings:sync`.
-  Ranges: max_speech_seconds 0-15 (default 10), playback_speed 0.85-1.0 (1.0), volume_db 60-70 (65).
+  Ranges: max_speech_seconds 0-15 (default 10), playback_speed 0.85-1.0 (1.0), volume_db 60-70 (65), voice_gender female|male (female).
+- `GET /api/voices` → {voices: [{language, gender, available}]}: never voice IDs (those live only in env).
+- `GET /api/tts?text` (≤300 chars; device token via `x-device-token` or `?token=` for `<audio>`, or caregiver JWT + `patientId`)
+  → streamed audio/mpeg in the patient's language + voice_gender; 503 {error, code} when the key/voice is missing or ElevenLabs fails; 30/min per device.
 - `GET/POST /api/routines`, `GET/PUT/DELETE /api/routines/:id`: also take `title` and `days` (0=Sun..6=Sat, default all).
 - `GET /api/patient/status?patientId` → {status: {patient_id, patient_name, language, device: {id, name, online, battery, last_seen_at} | null}}
 - `GET /api/interactions?patientId&limit=20(≤100)&before=<id>` → {interactions (newest first), next_before}

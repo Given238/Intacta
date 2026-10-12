@@ -16,7 +16,7 @@ Branch: `wip-recovery` (Phase 3 terminal + 3a/3b backend committed in `ccba0fc`;
 | P3b | Backend for the new Figma (context items, settings, status, interactions, broadcast, voice test) | **CODE + UNIT TESTS DONE; migration/seed NOT RUN** | `src/__tests__/backend-3b.test.js`; no Postgres on the dev machine |
 | P3 | Patient Terminal UI (`/terminal`) | **IN PROGRESS** | Screens build; client still uses the old contract (see Known bugs) |
 | P4 | Caregiver Portal | **IN PROGRESS** | All portal screens built (`client/src/portal/`): pair, Home, Context, Patient, Routines, Settings; see "Portal C2" |
-| P5 | Voice loop | **NOT STARTED** | |
+| P5 | Voice loop | **IN PROGRESS** | Part A (audio out) done 2026-10-12; Part B (mic) next. See "Voice and routines" |
 | P6 | Routines scheduler, broadcast, settings, EN/ID | **PARTIAL** | Broadcast + settings backend done (3b); no routine scheduler; no portal UI |
 | P7 | Resilience, deploy, demo seed | **PARTIAL** | Seed rewritten for Figma (not executed); not deployed |
 
@@ -494,6 +494,85 @@ Gemini returns **404 "models/gemini-2.5-flash-lite is no longer available to new
 
 ---
 
+## Voice and routines (2026-10-12, one session: A audio → B mic → C scheduler)
+
+### Inspected first (what already existed)
+- No `/api/tts`, no voice-gender setting, no scheduler, no `last_fired_on`, **no interaction clip storage** (the
+  portal's waveform rows are mocked only), so recorded speech is discarded right after transcription (FR-4.2.5).
+- Terminal Start gate existed but was persisted in localStorage (`terminal_started`) and unlocked nothing.
+  `hooks/useAudioMode.js` (Web Speech) was unused. `GET /api/settings/voices` returned the raw ElevenLabs voice IDs.
+
+### Part A: audio out (DONE)
+- **Server**
+  - `src/services/voiceService.js`: `resolveVoiceId(language, gender)` = exact `ELEVENLABS_VOICE_ID_{ID|EN}_{FEMALE|MALE}`
+    → legacy `ELEVENLABS_VOICE_ID_{ID|EN}` → same language, other gender (never another language; unknown gender →
+    female, unknown language → en). `listVoiceOptions()` (no IDs). `synthesizeStream()` calls ElevenLabs
+    `/v1/text-to-speech/{voice}/stream` (mp3), model `ELEVENLABS_MODEL_ID` (default `eleven_multilingual_v2`),
+    `voice_settings.speed` = playback_speed; key only in the `xi-api-key` header; secrets redacted from errors.
+  - `GET /api/tts?text=` (`routes/tts.js`, `controllers/ttsController.js`): device token (`x-device-token`, or
+    `?token=` because an `<audio>` src cannot send headers) or caregiver JWT + `patientId` (ownership checked).
+    ≤300 chars (zod), patient's language + `voice_gender` + playback_speed, streamed `audio/mpeg`, `no-store`,
+    nothing stored, upstream aborted if the client leaves. 30 requests/min per device (or caregiver) → 429.
+    Missing key/voice or ElevenLabs failure → `503 {error:'Voice unavailable', code}` (`tts_not_configured`,
+    `voice_not_configured`, `tts_upstream`, `tts_timeout`).
+  - `GET /api/voices` (caregiver JWT) → `[{language, gender, available}]`. The old `/api/settings/voices` path now
+    returns the same safe list.
+  - Migration `005_voice_gender.sql`: `patient_settings.voice_gender` ('female'|'male', default 'female'). Ran on the
+    `DATABASE_URL` DB. `PUT /api/settings` accepts it (audit + `settings:sync`). The legacy `voice_id` column is no
+    longer read or written, so no voice ID reaches a client; `voice:test` carries `voice_gender` instead.
+  - `config/env.js` declares `ELEVENLABS_MODEL_ID`, the four gendered voice IDs, the legacy pair and `GEMINI_STT_MODEL`
+    (note: nothing in the server requires `env.js`; services read `process.env`).
+- **Terminal**
+  - `components/StartGate.jsx`: full-screen "Tap to start" on every load (not persisted), styled like the home screen
+    (stage, mesh, header, still bars, prompt in the greeting's box and style). The tap calls `unlockAudio()` synchronously.
+  - `lib/speaker.js`: one shared `<audio>` (crossOrigin anonymous; MediaElementSource → analyser wired in the
+    unlock). `speak()` = stream `/api/tts?…&token=` → on element error fetch the same URL with the header → blob
+    (Safari range quirk; also yields the server's reason) → `speechSynthesis` in id-ID / en-US. Newer speech cancels
+    older. Volume 60–70 dB → element volume 0.5–1.0.
+  - `App.jsx` `say()` is the single path for typed replies, `response:ready`, broadcasts, `voice:test`, routines:
+    speak, then `presentReply` with the playing audio element (waveform = AnalyserNode, highlight = audio clock) or
+    with the speech handle (simulated waveform). Terminal language now follows `context:sync` (item 20 for speech);
+    `volume_db` from `settings:sync`. `lib/wav.js`: 16-bit WAV encoder (also builds the silent unlock clip).
+  - `lib/replyLifecycle.js`: `speech` handle: speaking ends when both the estimate has elapsed and the speech ended
+    (safety cap); highlight follows `audio.currentTime` / duration, or the estimate while a stream has no duration yet.
+  - Dev overlay (`?dev=1`): `voice elevenlabs | browser speech` + the fallback reason in red.
+- **Portal Settings**: voice dropdown = Female / Male for the patient's language from `/api/voices` (i18n
+  `portal.settings.audio.gender.*`; "(not set up)" + disabled when that gender has no voice); saves `voice_gender`.
+  Test Voice: tablet online → `voice:test`; offline/failed → `/api/tts` with the JWT played on the phone, else
+  browser speech.
+- **Tests**: `server/src/__tests__/voice-a.test.js` (resolveVoiceId fallbacks, `/api/voices` has no IDs, `/api/tts`
+  validation, auth, ownership, 503 without key/voice, rate limit, ElevenLabs request shape, redaction). Client
+  lifecycle tests +4 (speech fallback, stream highlight).
+
+### Part A verification
+- `cd server && npm test` → 7 suites, 195 passed, 12 skipped. `cd client && npm test` → 26 passed. `vite build` OK.
+- Live (backend + Vite, the existing throwaway tablet of patient 12; only its settings/audit rows changed):
+  `/api/tts` 200 `audio/mpeg`; caregiver JWT own patient 200, other patient 403, no patientId 400; `/api/voices`
+  body has no IDs. Headless Chrome 1194×834: gate shown, nothing in localStorage, tap unlocks; `voice:test` from a
+  caregiver socket → ElevenLabs audio played on the shared element, overlay `voice elevenlabs`, bars moving
+  1.4 s → 5.2 s after the emit (≈ audio length), then holding. `/api/tts` forced to 503 → `speechSynthesis` `id-ID`,
+  simulated bars, overlay `tts: audio element error (media 4); tts 503 tts_not_configured`. Portal 402×874: options
+  Female / Male, select → PUT `voice_gender` 200, Test Voice → "Sent to the tablet". No console errors.
+- **TTS latency**, time to first audio byte from ElevenLabs (this machine, 3 runs each, ~15-word sentence):
+
+  | model | id | en |
+  |---|---|---|
+  | `eleven_multilingual_v2` (default per brief) | 1113–1282 ms | 939–1654 ms |
+  | `eleven_flash_v2_5` | 139–144 ms | 133–147 ms |
+  | `eleven_turbo_v2_5` | 215–233 ms | 188–200 ms |
+
+  Through `/api/tts` with the default model: first byte 1.16–1.18 s (3.8 s on a cold first call). **Misses the
+  500 ms target (FR-4.4.1) with the default model**; `ELEVENLABS_MODEL_ID=eleven_flash_v2_5` would meet it. Not
+  changed (needs a decision).
+
+### Needs manual testing on the tablet (Part A)
+- Real speaker output and volume; iPad Safari playing the streamed `/api/tts` (else the blob retry should catch it).
+- Analyser-driven bars with real audio (headless proved the audio path and movement, not the spectrum).
+- `speechSynthesis` voices on the tablet in id-ID / en-US when ElevenLabs is down.
+- Portal Test Voice with the tablet offline (local `/api/tts` playback was checked only at the API level).
+
+---
+
 ## Known bugs / open items
 1. **Run `npm run db:seed`** and smoke-test the 3b endpoints (migrate 001–004 has now run against `DATABASE_URL`). (CLAUDE.md says
    `db:migrate`; the script is named `migrate`.)
@@ -544,6 +623,8 @@ Gemini returns **404 "models/gemini-2.5-flash-lite is no longer available to new
 ---
 
 ## NEXT
+- **IN PROGRESS (this session)**: Part B microphone (VAD → server STT → reply), then Part C routine scheduler.
+- Decide the TTS model (`ELEVENLABS_MODEL_ID=eleven_flash_v2_5` meets the 500 ms first-byte target; the default misses it).
 0. Delete the 2026-10-12 test rows (patients/caregivers 9–12, see "Terminal home rework → Test data").
 1. Decide model (item 11: set `GEMINI_MODEL=gemini-3.5-flash-lite`?) and timeout (item 14), fix the fallback shape
    (item 12), then re-test typed input.
@@ -554,5 +635,8 @@ Gemini returns **404 "models/gemini-2.5-flash-lite is no longer available to new
    and tick it.
 
 ## Environment variables
-Names only (values live in `server/.env`, never here): `GEMINI_API_KEY`, `ELEVENLABS_API_KEY` (empty until Phase 5),
-`JWT_SECRET`, `DATABASE_URL`, `CLIENT_ORIGIN`, `API_ORIGIN`, `PORT`.
+Names only (values live in `server/.env`, never here): `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_STT_MODEL`
+(optional), `LLM_TIMEOUT_MS`, `ELEVENLABS_API_KEY`, `ELEVENLABS_MODEL_ID` (optional), `ELEVENLABS_VOICE_ID_ID_FEMALE`,
+`ELEVENLABS_VOICE_ID_ID_MALE`, `ELEVENLABS_VOICE_ID_EN_FEMALE`, `ELEVENLABS_VOICE_ID_EN_MALE` (legacy
+`ELEVENLABS_VOICE_ID_ID` / `_EN` still read as fallback), `JWT_SECRET`, `DATABASE_URL`, `CLIENT_ORIGIN`, `API_ORIGIN`,
+`PORT`, `TZ`.

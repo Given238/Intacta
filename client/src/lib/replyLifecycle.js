@@ -79,17 +79,22 @@ export function createReplyLifecycle({ onChange, holdMs = HOLD_MS, now = () => D
    * @param {string} reply.text
    * @param {string[]} [reply.parts]
    * @param {HTMLAudioElement} [reply.audioEl]  speaking lasts until it ends
+   * @param {{onEnd: function}} [reply.speech] browser speech: speaking lasts until BOTH the estimate
+   *                                           has elapsed and the speech ended (simulated waveform)
    * @param {number} [reply.playbackSpeed]      for the estimate when there is no audio
    * @param {string} [reply.fallbackText]       shown when text and parts are empty
    * @returns {number|null} reply id, or null when there is nothing to show
    */
-  const present = ({ text, parts, audioEl, playbackSpeed = 1, fallbackText = '', source } = {}) => {
+  const present = ({ text, parts, audioEl, speech, playbackSpeed = 1, fallbackText = '', source } = {}) => {
     const shown = replyTextOf({ text, parts }) || fallbackText
     if (!shown) return null
     cancel()
     const id = ++seq
     const words = splitWords(shown)
-    let durationMs = estimateSpeechMs(words.length, playbackSpeed)
+    const estimateMs = estimateSpeechMs(words.length, playbackSpeed)
+    let durationMs = estimateMs
+    // Safety net: never stay "speaking" forever if the audio/speech stalls.
+    const safetyMs = estimateMs * 2 + 2000
 
     if (audioEl) {
       const known = Number.isFinite(audioEl.duration) && audioEl.duration > 0
@@ -101,8 +106,17 @@ export function createReplyLifecycle({ onChange, holdMs = HOLD_MS, now = () => D
         audioEl.removeEventListener('ended', onEnd)
         audioEl.removeEventListener('error', onEnd)
       }
-      // Safety net: never stay "speaking" forever if the element stalls.
-      timer = setTimeout(onEnd, Math.max(durationMs, estimateSpeechMs(words.length, playbackSpeed)) * 2 + 2000)
+      timer = setTimeout(onEnd, Math.max(durationMs, estimateMs) * 2 + 2000)
+    } else if (speech) {
+      let estimateDone = false
+      let speechDone = false
+      const maybeEnd = () => { if (estimateDone && speechDone) endSpeaking(id) }
+      detachAudio = speech.onEnd(() => { speechDone = true; maybeEnd() })
+      timer = setTimeout(() => {
+        estimateDone = true
+        maybeEnd()
+        if (!speechDone) timer = setTimeout(() => endSpeaking(id), safetyMs - estimateMs)
+      }, estimateMs)
     } else {
       timer = setTimeout(() => endSpeaking(id), durationMs)
     }
@@ -121,8 +135,11 @@ export function createReplyLifecycle({ onChange, holdMs = HOLD_MS, now = () => D
     if (snapshot.phase !== 'speaking') return r.words.length - 1
     let fraction
     const a = r.audioEl
-    if (a && Number.isFinite(a.duration) && a.duration > 0) fraction = a.currentTime / a.duration
-    else fraction = (at - r.startedAt) / r.durationMs
+    if (a) {
+      // Follow the audio clock; a streamed file may not know its duration yet → use the estimate.
+      const dur = Number.isFinite(a.duration) && a.duration > 0 ? a.duration : r.durationMs / 1000
+      fraction = a.currentTime / dur
+    } else fraction = (at - r.startedAt) / r.durationMs
     return Math.min(r.words.length - 1, Math.floor(Math.max(0, fraction) * r.words.length))
   }
 

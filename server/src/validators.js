@@ -27,7 +27,7 @@ const putSettingsSchema = z.object({
   patientId:          patientIdField,
   strict_validation:  z.boolean().optional(),
   max_speech_seconds: z.number().int().min(0).max(15).optional(),
-  voice_id:           z.string().max(100).nullable().optional(),
+  voice_gender:       z.enum(['female', 'male']).optional(),
   playback_speed:     z.number().min(0.85).max(1.0).optional(),
   volume_db:          z.number().int().min(60).max(70).optional(),
 }).refine(
@@ -97,6 +97,13 @@ const contextItemsQuerySchema = patientQuerySchema.extend({
   scope: z.enum(CONTEXT_SCOPES).optional(),
 });
 
+const ttsQuerySchema = z.object({
+  text: z.string().trim()
+    .min(1, { message: 'text is required' })
+    .max(300, { message: 'text must be at most 300 characters' }),
+  patientId: z.coerce.number().int().positive().optional(), // caregiver JWT only
+});
+
 const interactionsQuerySchema = patientQuerySchema.extend({
   limit:  z.coerce.number().int().min(1).max(100).default(20),
   before: z.coerce.number().int().positive().optional(),
@@ -126,6 +133,7 @@ module.exports = {
   patientQuerySchema,
   contextItemsQuerySchema,
   interactionsQuerySchema,
+  ttsQuerySchema,
   validateQuery,
   createRoutineSchema,
   updateRoutineSchema,

@@ -171,5 +171,52 @@ describe('reply lifecycle', () => {
       audio.fire('ended') // late event from the old audio: no effect
       expect(phase()).toBe('speaking')
     })
+
+    it('highlights from the audio clock, using the estimate while a stream has no duration', () => {
+      const audio = fakeAudio(NaN) // streamed mp3: duration unknown
+      lc.present({ text: 'one two three four', audioEl: audio }) // estimate 2.1 s
+      audio.currentTime = 1.05
+      expect(lc.highlightIndex()).toBe(2)
+      audio.duration = 4
+      audio.currentTime = 1.05
+      expect(lc.highlightIndex()).toBe(1)
+    })
+  })
+
+  describe('with browser speech (TTS fallback)', () => {
+    function fakeSpeech() {
+      let cb = null
+      return { onEnd: (fn) => { cb = fn; return () => { cb = null } }, end: () => cb?.(), attached: () => !!cb }
+    }
+
+    it('keeps the simulated duration when speech ends early (e.g. no voices)', () => {
+      const speech = fakeSpeech()
+      lc.present({ text: 'one two three four five', speech }) // estimate 2.5 s
+      speech.end()
+      advance(2000)
+      expect(phase()).toBe('speaking')
+      advance(500)
+      expect(phase()).toBe('holding')
+    })
+
+    it('stays speaking until slow speech ends', () => {
+      const speech = fakeSpeech()
+      lc.present({ text: 'one two three four five', speech })
+      advance(3000)
+      expect(phase()).toBe('speaking')
+      speech.end()
+      expect(phase()).toBe('holding')
+    })
+
+    it('has a safety timeout if speech never ends, and detaches on replace', () => {
+      const speech = fakeSpeech()
+      lc.present({ text: 'one two three four five', speech })
+      advance(2500 * 2 + 2000)
+      expect(phase()).toBe('holding')
+      const s2 = fakeSpeech()
+      lc.present({ text: 'again', speech: s2 })
+      lc.present({ text: 'replaced' })
+      expect(s2.attached()).toBe(false)
+    })
   })
 })

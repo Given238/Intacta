@@ -36,11 +36,4 @@ async function updateProfile(caregiverId, changes) {
 }
 
 /** TTS voices configured on the server (ElevenLabs voice IDs per patient language). */
-function listVoices() {
-  return [
-    { language: 'id', id: process.env.ELEVENLABS_VOICE_ID_ID },
-    { language: 'en', id: process.env.ELEVENLABS_VOICE_ID_EN },
-  ].filter(v => v.id);
-}
-
-module.exports = { getProfile, updateProfile, listVoices, CaregiverError };
+module.exports = { getProfile, updateProfile, CaregiverError };

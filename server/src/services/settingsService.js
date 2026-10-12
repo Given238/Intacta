@@ -2,6 +2,8 @@
  * settingsService.js — patient_settings, with defaults for patients that have no row yet.
  * strict_validation is stored for the portal toggle only: the server enforces the
  * clinical guardrails on every response regardless of its value.
+ * The legacy voice_id column is no longer read or written: the voice is chosen by voice_gender and
+ * the ElevenLabs IDs live only in env (services/voiceService.js), so no ID reaches a client.
  */
 
 const { query } = require('../db/query');
@@ -9,7 +11,7 @@ const { query } = require('../db/query');
 const DEFAULT_SETTINGS = Object.freeze({
   strict_validation:  true,
   max_speech_seconds: 10,
-  voice_id:           null,
+  voice_gender:       'female',
   playback_speed:     1.0,
   volume_db:          65,
 });
@@ -21,7 +23,7 @@ function normalize(row) {
   return {
     strict_validation:  pick('strict_validation'),
     max_speech_seconds: pick('max_speech_seconds'),
-    voice_id:           pick('voice_id'),
+    voice_gender:       pick('voice_gender'),
     playback_speed:     Number(pick('playback_speed')), // NUMERIC arrives from pg as a string
     volume_db:          pick('volume_db'),
     updated_at:         row.updated_at || null,
