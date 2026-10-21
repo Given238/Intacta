@@ -155,7 +155,9 @@
       "playClip": "Play recording",
       "pauseClip": "Pause recording",
       "clipExpired": "Recording expired",
-      "clipError": "Couldn't play"
+      "clipError": "Couldn't play",
+      "backupReply": "backup reply",
+      "backupReplyHint": "A prepared reply was used because the AI reply failed or took too long."
     },
     "routines": {
       "title": "Daily Routines",

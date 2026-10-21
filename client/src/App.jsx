@@ -63,6 +63,7 @@ export default function App() {
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
   const [volumeDb,      setVolumeDb]      = useState(65)
   const [ttsError,      setTtsError]      = useState(null) // dev overlay: why the last reply used browser speech
+  const [replyMeta,     setReplyMeta]     = useState(null) // dev overlay: last /api/respond meta (backup reply, reason)
   const [micStream,     setMicStream]     = useState(null) // Promise<MediaStream>, requested inside the Start tap
   const navigateRef = useRef(null)
 
@@ -91,7 +92,8 @@ export default function App() {
   /* ── Speak + show: ElevenLabs via /api/tts on the shared <audio>, else browser speech ── */
   const voiceRef = useRef({})
   voiceRef.current = { deviceToken, language, playbackSpeed, volumeDb, noText: t('response.noText') }
-  const say = useCallback(async ({ text, parts, source, playbackSpeed: speed }) => {
+  const say = useCallback(async ({ text, parts, source, playbackSpeed: speed, meta }) => {
+    if (meta) setReplyMeta(meta)
     const v = voiceRef.current
     const shown = replyTextOf({ text, parts }) || v.noText
     pendingSaysRef.current++
@@ -364,6 +366,7 @@ function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, r
           patientId={patientId}
           context={context}
           ttsError={ttsError}
+          replyMeta={replyMeta}
           micState={micState}
           micInfo={micInfo}
         />
@@ -395,7 +398,7 @@ function TypedUtterance({ onReply, onClose }) {
         body: JSON.stringify({ transcript, source: 'typed' }),
       })
       setValue('')
-      onReply({ text: data?.text, parts: data?.parts, source: 'typed' })
+      onReply({ text: data?.text, parts: data?.parts, source: 'typed', meta: data?.meta })
     } catch (e) {
       console.error('respond failed:', e.message)
       if (e.code === 'no_device_token') setError(t('notRegistered'))
@@ -466,7 +469,7 @@ function TerminalErrorScreen({ onHome }) {
 }
 
 /* ── Debug overlay ── */
-function DebugOverlay({ socket, phase, language, deviceToken, patientId, context, ttsError, micState, micInfo }) {
+function DebugOverlay({ socket, phase, language, deviceToken, patientId, context, ttsError, replyMeta, micState, micInfo }) {
   const location = useLocation()
   const [connected, setConnected] = useState(!!socket?.connected)
 
@@ -495,6 +498,9 @@ function DebugOverlay({ socket, phase, language, deviceToken, patientId, context
     ['mic',     micState],
     ['vad p',   (micInfo?.prob ?? 0).toFixed(2)],
     ['heard',   micInfo?.transcript ? `"${micInfo.transcript}"` : '-'],
+    ['ai',      replyMeta
+      ? (replyMeta.fallback ? `BACKUP REPLY (${replyMeta.fallback_reason || 'fallback'}) ${replyMeta.latency_ms}ms` : `model (${replyMeta.stage || 'full'}) ${replyMeta.latency_ms}ms`)
+      : '-'],
   ]
   const tm = micInfo?.timings
   if (tm) {

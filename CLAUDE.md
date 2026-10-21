@@ -39,11 +39,29 @@ ALL patient-facing LLM output:
 1. Validate Emotion → 2. Reassure Fact (caregiver context) → 3. Redirect Action
 - Max 25 words or 2 short sentences. Language follows `patients.language` (id | en). Warm, simple words.
 - NEVER: questions, memory tests, corrections, reality-orientation confrontation, or denying the patient's reality.
-- LLM returns structured JSON {validate, reassure, redirect}. A validator rejects any `?`, banned phrases, >25 words, or empty parts. One retry, then a fallback script.
-- Banned phrases (both languages): id: ingat, sudah dibilang, tadi kan, salah, bukan begitu. en: remember, I told you, as I said, wrong.
-- Timeout (1.2s), API error, or double rejection → themed fallback script (visitor / anxiety / disorientation / generic), per language.
+- Validate = name the feeling/need the patient expressed, in their words (never generic). Reassure = ONE true thing from the notes,
+  today's routines/times or the time of day, else a presence statement phrased around their topic; never invent people's whereabouts,
+  times, events, names, or the patient's title/gender. Redirect = a small calming action matched to the situation (hunger/thirst →
+  drink/snack ONLY then; fear → slow breathing / something familiar / staying; missing someone → talk about them / a song; pain → tell
+  the caregiver; restless → window / gentle walk). Food or drink only if the patient mentions hunger/thirst or a meal routine is ≤60 min away.
+- Prompts (`server/src/llm/prompts.js`) describe behaviour abstractly: NO example sentences the model could copy (no "tea"). Inputs: the
+  patient's words, daily + permanent notes, today's upcoming routines (title + time), Asia/Jakarta time of day, the last ≤3 exchanges
+  within 10 min ("do not reuse their openings or redirects"), and a server-computed "food may be offered" flag. Temperature 0.7.
+- LLM returns structured JSON {validate, reassure, redirect}. The validator (`llm/validator.js`) rejects: any `?`; quizzing/correcting
+  phrase patterns (whole-word/phrase, never substrings; a sentence opening with "Ingat,"/"Remember,"); >25 words; empty parts;
+  non-Latin script. The chain also rejects: over the patient cap; food/drink in the redirect when not allowed; an unsafe reply (Content Safety).
+- Banned patterns (examples): id: kamu lupa, sudah kubilang/dibilang, tadi kan, apa kamu ingat, ingat tidak, bukan begitu, kamu salah,
+  sebenarnya. en: you forgot, I told you, as I said, do you remember, that's wrong, you're wrong, actually. A validating phrase like
+  "tidak salah kok merasa begitu" passes.
+- Reply ladder (`llm/chain.js`): (1) full prompt, `LLM_TIMEOUT_MS` (default 2500); (2) ONE retry with the short prompt + the rejection
+  reason, 2 s (skipped for 400/401/403/404); (3) static fallback from `llm/fallbacks.js`: 15 situation categories × 4 variants of each
+  part × 2 languages, chosen by keyword intent (generic last), random, never reusing a piece from the last 3 replies, within the word
+  cap; presence statements only; food only in hungry/thirsty. Fallbacks carry `_fallback: true`, `_reason`
+  (timeout | api_error:<status> | validation:<rule> | safety | empty) and are logged with latency.
+  NOTE (2026-10-21, decision pending): FR-4.3.2 says ≤1.2 s or fallback; the measured model latency does not fit that, so the
+  default first-attempt budget is now 2500 ms + a 2 s retry. Confirm or restore.
 - Missing context params → generic comforting phrase, never an error (FR-4.3.5).
-- Any change to prompts or the validator requires the guardrail suite to pass.
+- Any change to prompts or the validator requires the guardrail suite to pass (`npm test`); live checks: `RUN_LIVE_LLM_TESTS=1 npm test`.
 
 ## Content Safety (NON-NEGOTIABLE): text that reaches the patient
 - One module: `server/src/services/contentSafety.js` → `checkPatientFacingText(text, {language, kind})` → `{ok, category, reason}`;
@@ -119,7 +137,10 @@ Terminal (`x-device-token`): `GET /api/device/context` → {context: {patient_na
 source:'voice'} → server STT (Gemini audio, `GEMINI_STT_MODEL` else `GEMINI_MODEL`) → chain → {transcript, text, parts, meta};
 empty/junk transcript → {transcript:'', text:null, parts:[], meta:{no_speech}} (no reply, not logged); STT failure → 502.
 The audio never reaches the LLM chain and is dropped right after transcription (no clip storage exists).
-Word cap for LLM output = min(25, round(max_speech_seconds × 2.5)); 0 → 25. Enforced on top of the 25-word validator.
+Word cap for LLM output = min(25, round(max_speech_seconds × 2.5)), never below 15; 0 → 25. Enforced on top of the 25-word validator.
+`/api/respond` meta: {fallback, fallback_reason, stage (full|retry|static), theme, latency_ms, stt_ms}.
+`GET /api/health/llm` (caregiver JWT) → {llm: {window_minutes, total, fallbacks, fallback_rate, top_reasons, p50_ms, p95_ms}} (last hour,
+in memory); the server also logs the hourly fallback rate. Fallback replies show a "backup reply" tag in the portal log and the ?dev=1 overlay.
 
 ## Figma (source of truth) — file key mIwuaN6ddcgRRLwa9TyMTp
 Always: get_design_context + get_screenshot for the node before building. Clip every header to its frame width
@@ -166,6 +187,7 @@ Always: get_design_context + get_screenshot for the node before building. Clip e
 - `npm test`: Jest unit + integration (includes the guardrail suite) in `server/`; Vitest unit tests in `client/` (terminal reply lifecycle, contrast)
 - `npm run db:migrate` / `npm run db:seed`
 - `npm run llm:try "<utterance>" --lang id|en`: run the LLM pipeline from the CLI with latency
+- `npm run llm:bench -- [--timeout ms] [--out file.json]`: 40-utterance × 2-context fallback/latency benchmark on the real model
 
 ## Database Schema Keys
 - `caregivers` (email + password_hash nullable since migration 004: code-paired caregivers have no login), `patients` (language: id|en; linked to caregiver)
@@ -179,7 +201,7 @@ Always: get_design_context + get_screenshot for the node before building. Clip e
 
 ## Verification Targets (summary)
 - Context sync p95 ≤1.0s (FR-4.1.1); invalid time → 400 field error (FR-4.1.3)
-- LLM response ≤1.2s or fallback (FR-4.3.2); 100% guardrail compliance
+- LLM response ≤1.2s or fallback (FR-4.3.2; see the pending note under Clinical Guardrails); fallback rate <10%; 100% guardrail compliance
 - STT ≤800ms after utterance end (FR-4.2.2); TTS first byte ≤500ms (FR-4.4.1)
 - Mic never captures during SPEAKING or the 3.0s COOLDOWN
 - Terminal contrast ≥7:1, font ≥32pt; returns to clock mode 60s after audio ends

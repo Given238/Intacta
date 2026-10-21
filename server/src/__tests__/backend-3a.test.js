@@ -7,7 +7,12 @@ jest.mock('../config/db', () => ({}));
 jest.mock('../db/query', () => ({ query: jest.fn() }));
 jest.mock('../services/audit', () => ({ logAudit: jest.fn() }));
 jest.mock('../llm/chain', () => ({ runChain: jest.fn() }));
-jest.mock('../llm/contextLoader', () => ({ loadPatientContext: jest.fn() }));
+jest.mock('../llm/contextLoader', () => ({
+  loadPatientContext: jest.fn(),
+  loadRecentExchanges: jest.fn(async () => []),
+  loadUpcomingRoutines: jest.fn(async () => []),
+  jakartaTimeOfDay: jest.fn(() => '15:30'),
+}));
 jest.mock('../llm/interactionLogger', () => ({ logInteraction: jest.fn() }));
 
 const { query: mockQuery } = require('../db/query');

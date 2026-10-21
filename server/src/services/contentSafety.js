@@ -135,6 +135,8 @@ const RULES = [
     '(nyalakan|menyalakan|hidupkan|menghidupkan|sentuh|menyentuh|pegang|memegang|pakai|memakai|gunakan|menggunakan)( \\w+){0,2} (kompor|oven|korek|lilin|pisau|setrika)',
     'masak sendiri\\w*', 'buka\\w* pintu (untuk|bagi|kepada) (orang asing|siapa saja|siapapun|orang tak dikenal)',
     '(kasih|berikan|beri|transfer|kirim)\\w* (uang|pin|kata sandi|password|nomor kartu|kartu atm)',
+    '(makan|minum|telan|menelan|mencicipi)\\w*( \\w+){0,2} (berbahaya|beracun|racun|sabun|deterjen|detergen|pemutih|obat nyamuk|bensin|minyak tanah|uranium|radioaktif)',
+    '(eat|drink|swallow|taste)\\w*( \\w+){0,2} (poison\\w*|bleach|detergent|soap|dangerous|toxic|uranium|radioactive|petrol|gasoline)',
     'menyetir', 'nyetir', '(bawa|kendarai|mengendarai) (mobil|motor)', 'naik tangga sendiri\\w*',
     '(take|swallow|finish)( \\w+){0,2} (all|extra|double|more|several|lots of|a handful of|the whole)( \\w+){0,2} (pills?|tablets?|medicine|medications?|meds|doses?|capsules?)',
     'double (dose|up on)', 'overdose\\w*', 'extra (dose|doses|pills|tablets)',
@@ -156,9 +158,11 @@ const COMPILED = RULES.map(rule => ({
   regexes: rule.re.map(src => new RegExp(`(?:^|\\b)(?:${src})\\b`, 'g')),
 }));
 
-function negatedAt(text, index) {
+/** A negation in the 4 words before the match, or inside it ("kamu tidak sendirian"), cancels a negatable rule. */
+function negatedAt(text, index, matched = '') {
   const before = text.slice(0, index).trim().split(' ').slice(-4);
-  return before.some(w => NEGATIONS.has(w));
+  const inside = matched.trim().split(' ');
+  return [...before, ...inside].some(w => NEGATIONS.has(w));
 }
 
 function matchRule(rule, variants) {
@@ -167,7 +171,7 @@ function matchRule(rule, variants) {
       re.lastIndex = 0;
       let m;
       while ((m = re.exec(text)) !== null) {
-        if (!rule.negatable || !negatedAt(text, m.index)) return true;
+        if (!rule.negatable || !negatedAt(text, m.index, m[0])) return true;
         if (m[0].length === 0) re.lastIndex++;
       }
     }

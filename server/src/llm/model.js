@@ -4,9 +4,9 @@ const { z } = require('zod');
 let _model = null;
 
 const RESPONSE_SCHEMA = z.object({
-  validate:  z.string().describe('Emotional validation — warm, simple, no question mark'),
-  reassure:  z.string().describe('Connecting fact to caregiver context — 1 sentence'),
-  redirect:  z.string().describe('Gentle activity/comfort redirection — 1 sentence'),
+  validate:  z.string().describe('Names the feeling or need the person expressed, about their own topic; no question mark'),
+  reassure:  z.string().describe('One true thing from the notes, routines or time of day, or a presence statement; nothing invented'),
+  redirect:  z.string().describe('One small calming action that fits the situation'),
 });
 
 function getModel() {
@@ -14,7 +14,7 @@ function getModel() {
     _model = new ChatGoogleGenerativeAI({
       model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
       apiKey: process.env.GEMINI_API_KEY,
-      temperature: 0.4,
+      temperature: 0.7, // variety; the validator enforces the rules
       maxOutputTokens: 256,
       thinkingConfig: {
         thinkingBudget: 0,

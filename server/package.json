@@ -11,7 +11,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "llm:try": "node src/llm/cli.js",
-    "db:seed": "node src/db/seed.js"
+    "db:seed": "node src/db/seed.js",
+    "llm:bench": "node src/llm/bench.js"
   },
   "dependencies": {
     "@langchain/core": "^0.3.0",

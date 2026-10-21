@@ -717,6 +717,40 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
   failures (TCP connect up to 7.9 s); `thinkingBudget: 0` is rejected (400) by `gemini-3.5-flash-lite` over REST
   (LangChain 0.1.12 drops it, so no error there). Re-run when the network is normal.
 
+### Part B: situation-specific replies, fallback ladder (CODE DONE, committed locally; "after" numbers pending, see below)
+**B0 diagnosis (before any change; `npm run llm:bench`, 40 utterances × 2 contexts = 80 calls, real model `gemini-3.5-flash-lite`)**
+- Current values found: `LLM_TIMEOUT_MS` = 4000 in `server/.env` (code default was 1200); word cap from `max_speech_seconds`
+  = min(25, round(s × 2.5)), default 10 s → 25 words (4 s → 10, 5 s → 13: below 15 at low slider values).
+- Run 1, configured budget (4000 ms): **fallback rate 98.8% (79/80)**, top reason `timeout` (79), p50 4008 ms, p95 4015 ms.
+  Caused by the network on this machine during the session (raw Gemini calls 2–60 s, intermittent connect failures), not by the code.
+- Run 2, diagnostic budget (60 s) to see past the network (72/80 finished at commit time): fallbacks `timeout` 32,
+  `validation:word_cap` 5, `validation:question` 1; **first-attempt rejections `validation:word_cap` 22, `validation:question` 5**.
+- Root causes in code: (1) the prompt asked for "1-2 sentences" per field → >25 words; (2) questions (incl. "ya?" tags);
+  (3) the retry re-sent the same prompt inside the same budget, and retried non-retryable 4xx; (4) banned phrases were
+  substrings ("ingat" hit "pengingat", "salah" hit "tidak salah kok"); (5) one static script per theme, an anxiety script
+  with "?" and stray CJK characters, scripts without `text`.
+**B1–B4 done**
+- `llm/validator.js`: whole-word/phrase patterns for quizzing/correcting (ID + EN), sentence-opening "Ingat,"/"Remember,",
+  `?` ban, ≤25 words, empty parts, non-Latin script; returns a `rule` code; `describeRule` for the retry prompt.
+- Word cap floor 15 (`wordCapFor`). `LLM_TIMEOUT_MS` code default 2500 (+ 2 s short retry): **FR-4.3.2 (1.2 s) decision pending**.
+- `llm/prompts.js` rewritten (both languages, no copyable example sentences, no tea): validate/reassure/redirect behaviour,
+  situation → redirect map, food only when allowed; inputs: notes, upcoming routines, Jakarta time + part of day,
+  last ≤3 exchanges within 10 min, `food_ok`. `buildShortPrompt` for the retry. Temperature 0.7 (`llm/model.js`).
+- `llm/chain.js`: ladder full → short retry (2 s, rejection reason; skipped for 400/401/403/404) → static library;
+  food/drink rule on the redirect; safety check; reasons `timeout | api_error:<status> | validation:<rule> | safety | empty`.
+- `llm/fallbacks.js`: 15 categories × 4 variants × 3 parts × 2 languages, keyword intent detection (40/40 benchmark
+  utterances classified as intended), random, never reusing a piece from the last 3 replies, within the word cap.
+- `llm/contextLoader.js`: `loadRecentExchanges`, `loadUpcomingRoutines` (blocked routines skipped), `jakartaTimeOfDay`
+  (the route used the server's local clock before).
+- `llm/fallbackStats.js` + `GET /api/health/llm` (caregiver JWT) + hourly `[llm] fallback rate` log; `/api/respond` meta has
+  `fallback_reason` and `stage`. Portal log "backup reply" tag (`InteractionLog.jsx`); `?dev=1` overlay row `ai`.
+- Safety: negations inside an instruction match now cancel it ("Kamu ingin pergi… Kamu tidak sendirian" was a false block);
+  new rule "eat/drink something harmful". The re-check found and blocked a real test routine (id 10) in the dev DB.
+**B5 tests**: guardrail suite updated (new categories, phrase patterns incl. "tidak salah kok merasa begitu"),
+`llm/__tests__/fallbackLibrary.test.js`, `llm/__tests__/ladder.test.js` (mocked model), `llm/__tests__/replies.live.test.js`
+and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the API was too slow this session).
+**After numbers**: PENDING (benchmarks with the new code were still running at commit time; filled in below when done).
+
 ## Session summary: voice + routines (2026-10-12)
 - **Done**: A (ElevenLabs `/api/tts`, voices by gender, Tap-to-start, shared audio element + analyser, browser speech
   fallback, portal voice + Test Voice), B (Silero VAD mic, server STT with Gemini audio, mic state machine with 3.0 s
@@ -736,10 +770,10 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
 ## Known bugs / open items
 1. **Run `npm run db:seed`** and smoke-test the 3b endpoints (migrate 001–004 has now run against `DATABASE_URL`). (CLAUDE.md says
    `db:migrate`; the script is named `migrate`.)
-2. **Anxiety fallback violates guardrails**: `src/llm/fallbacks.js` anxiety `redirect` contains `?` (EN + ID) and the ID
+2. ~~Anxiety fallback violates guardrails~~ fixed 2026-10-21 (library rewritten, every combination validated in tests). Was: `src/llm/fallbacks.js` anxiety `redirect` contains `?` (EN + ID) and the ID
    `validate` contains stray Chinese characters. The guardrail test only checks the generic theme
    (`getFallback('test', …)`), so it passes. Not changed in 3b (fallbacks were out of scope). Needs a decision.
-3. Fallback scripts (up to ~21 words) can exceed a reduced per-patient cap (e.g. max_speech_seconds 8 → 20 words).
+3. ~~Fallback scripts can exceed a reduced cap~~ fixed 2026-10-21 (selection fits the cap; cap floor 15). Was: (e.g. max_speech_seconds 8 → 20 words).
 4. Remaining Figma routines (frame 60:30) not seeded: `TODO(wire)` in `src/db/seed.js`.
 5. "Today" uses Postgres `CURRENT_DATE` (server timezone). On a UTC host, daily items roll over at 07:00 WIB.
 6. ~~Broadcast text is not checked~~ fixed 2026-10-21: content safety (Part A) checks it before it is emitted.
@@ -769,7 +803,7 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
     is unpaired). Pair the tablet, or run `npm run db:seed` and use the printed token.
 14. **LLM latency vs FR-4.3.2**: `gemini-3.5-flash-lite` takes ~1.1–1.7 s from this machine, so the 1.2 s budget
     falls back on most calls. Needs a decision (raise `LLM_TIMEOUT_MS`, stream, or a different model). Not changed.
-15. Retry runs even on non-retryable errors (404/400), burning the rest of the budget.
+15. ~~Retry runs even on non-retryable errors~~ fixed 2026-10-21 (ladder skips 400/401/403/404).
 16. ~~With empty context the model invents facts~~ fixed 2026-10-11 in the prompts (see "Clinical fix"). The
     validator still can't catch an invented fact; only the live suite (`LIVE_LLM=1`) checks it.
 17. Live runs saw `Aborted` after ~1-2 s with `LLM_TIMEOUT_MS=4000` in `.env` (EN, no context). Not investigated.
@@ -788,7 +822,8 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
 ---
 
 ## NEXT
-- IN PROGRESS (2026-10-21): Part B (situation-specific replies, fallback ladder) then Part C (type scale + responsive).
+- IN PROGRESS (2026-10-21): Part C (type scale + responsive). Part B "after" benchmark numbers to fill in.
+- Decide FR-4.3.2: keep the 2500 ms + 2 s ladder or restore 1.2 s (see Part B).
 - Re-run the live Tier 2 safety check once the Gemini API is reachable at normal speed (see Part A).
 - Tablet test of Parts A–C (lists under "Voice and routines"); restart `npm run dev` first so `/vad/` assets are served.
 - Delete spurious routine "missed" rows 50 and 51 if patients 7 / 13 are real (see Part C side effects).

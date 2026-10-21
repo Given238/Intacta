@@ -14,8 +14,10 @@ const routinesRoutes  = require('./routes/routines');
 const respondRoutes   = require('./routes/respond');
 const devicesRoutes  = require('./routes/devices');
 const ttsRoutes      = require('./routes/tts');
+const healthRoutes   = require('./routes/health');
 const setupSocket    = require('./socket');
 const { startRoutineScheduler } = require('./services/routineScheduler');
+const fallbackStats  = require('./llm/fallbackStats');
 
 const app    = express();
 const server = http.createServer(app);
@@ -44,6 +46,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
+app.use('/api/health',   healthRoutes);
 app.use('/api/auth',     authRoutes);
 app.use('/api/context-items', contextItemsRoutes);
 app.use('/api/settings', settingsRoutes);
@@ -62,7 +65,10 @@ app.use((err, req, res, next) => {
 });
 
 setupSocket(io);
-if (process.env.NODE_ENV !== 'test') startRoutineScheduler(io);
+if (process.env.NODE_ENV !== 'test') {
+  startRoutineScheduler(io);
+  fallbackStats.startHourlyLog();
+}
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 server.listen(PORT, () => {

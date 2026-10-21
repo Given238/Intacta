@@ -155,7 +155,9 @@
       "playClip": "Putar rekaman",
       "pauseClip": "Jeda rekaman",
       "clipExpired": "Rekaman kedaluwarsa",
-      "clipError": "Gagal diputar"
+      "clipError": "Gagal diputar",
+      "backupReply": "balasan cadangan",
+      "backupReplyHint": "Balasan siap pakai digunakan karena balasan AI gagal atau terlalu lama."
     },
     "routines": {
       "title": "Rutinitas Harian",

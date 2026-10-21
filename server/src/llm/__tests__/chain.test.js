@@ -181,7 +181,9 @@ describe('chain retry logic — language awareness', () => {
       { transcript: 'Aku gelisah.', language: 'id' },
       stub
     );
-    expect(result.validate).toMatch(/aku|sini|untuk/i);
+    const { LIBRARY } = require('../fallbacks');
+    expect(result._theme).toBe('scared');
+    expect(LIBRARY.scared.id.validate).toContain(result.validate);
     expect(result.reassure).toBeTruthy();
     expect(result.redirect).toBeTruthy();
   });
@@ -192,7 +194,9 @@ describe('chain retry logic — language awareness', () => {
       { transcript: 'I am scared.', language: 'en' },
       stub
     );
-    expect(result.validate).toMatch(/i am|here|right/i);
+    const { LIBRARY } = require('../fallbacks');
+    expect(result._theme).toBe('scared');
+    expect(LIBRARY.scared.en.validate).toContain(result.validate);
     expect(result.reassure).toBeTruthy();
     expect(result.redirect).toBeTruthy();
   });

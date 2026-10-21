@@ -57,7 +57,7 @@ export function useVoiceLoop({ micStream, phase, sayRef, pendingSaysRef }) {
       return
     }
     setInfo(i => ({ ...i, transcript: data.transcript || '', error: null }))
-    await sayRef.current({ text: data.text, parts: data.parts, source: 'voice' })
+    await sayRef.current({ text: data.text, parts: data.parts, source: 'voice', meta: data.meta })
     const audioAt = performance.now()
     const timings = {
       segmentMs:          Math.round(durationMs),

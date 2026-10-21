@@ -1,11 +1,11 @@
 /**
  * guardrail.test.js — Clinical guardrail suite for Intacta LLM.
- * Tests validator, word cap, banned phrases, and fallback behavior.
+ * Tests validator, word cap, banned phrases (whole-word/phrase patterns), and the fallback library.
  * Each case runs 3x as specified.
  */
 
 const { validateResponse, countWords, hasQuestion, hasBannedPhrase } = require('../validator');
-const { getFallback, detectTheme } = require('../fallbacks');
+const { getFallback, detectTheme, THEMES } = require('../fallbacks');
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
 
@@ -157,24 +157,53 @@ describe('validator — word cap (≤25 words)', () => {
   });
 });
 
-// ─── Fallback: theme detection ──────────────────────────────────────────────
+// ─── Validator: whole-word / phrase patterns (no substring false positives) ──
 
-describe('fallback — theme detection', () => {
-  test.each(runNTimes(() => ({}), 3))('detects visitor theme (ID)', () => {
-    expect(detectTheme(ID_UTTERANCES.visitor, 'id')).toBe('visitor');
-    expect(detectTheme(ID_UTTERANCES.visitorFull, 'id')).toBe('visitor');
+describe('validator — quizzing and correcting patterns', () => {
+  const ok = (text, lang) => expectValid({ validate: text, reassure: lang === 'id' ? 'Aku di sini.' : 'I am here.', redirect: lang === 'id' ? 'Mari duduk.' : 'Let us sit.' }, lang);
+  const bad = (text, lang) => expectInvalid({ validate: text, reassure: 'B.', redirect: 'C.' }, lang, 'banned phrase');
+
+  test.each(runNTimes(() => ({}), 3))('validating phrases pass', () => {
+    ok('Tidak salah kok merasa begitu.', 'id');
+    ok('Pengingat makan malam jam 6.', 'id');       // "ingat" inside a word
+    ok('Aku ingat lagu itu indah.', 'id');           // not a quiz
+    ok('It is not wrong to feel this way.', 'en');
+    ok('Let us listen to a song you love.', 'en');
   });
 
-  test.each(runNTimes(() => ({}), 3))('detects anxiety theme (ID/EN)', () => {
-    expect(detectTheme(ID_UTTERANCES.anxiety, 'id')).toBe('anxiety');
-    expect(detectTheme(ID_UTTERANCES.anxietyMixed, 'id')).toBe('anxiety');
-    expect(detectTheme(EN_UTTERANCES.anxiety, 'en')).toBe('anxiety');
+  test.each(runNTimes(() => ({}), 3))('quizzing and correcting are banned (ID)', () => {
+    for (const t of ['Kamu lupa ya.', 'Sudah kubilang tadi.', 'Sudah dibilang.', 'Tadi kan sudah.', 'Apa kamu ingat dia.',
+      'Ingat tidak.', 'Bukan begitu.', 'Kamu salah.', 'Sebenarnya dia sudah pergi.']) bad(t, 'id');
   });
 
-  test.each(runNTimes(() => ({}), 3))('detects disorientation theme', () => {
-    expect(detectTheme(ID_UTTERANCES.disorientation, 'id')).toBe('disorientation');
-    expect(detectTheme(EN_UTTERANCES.disorientation, 'en')).toBe('disorientation');
-    expect(detectTheme(EN_UTTERANCES.confusion, 'en')).toBe('disorientation');
+  test.each(runNTimes(() => ({}), 3))('quizzing and correcting are banned (EN)', () => {
+    for (const t of ['You forgot again.', 'I told you.', 'As I said.', 'Do you remember her.', "That's wrong.",
+      'Actually, he is out.', 'You are wrong.']) bad(t, 'en');
+  });
+
+  test.each(runNTimes(() => ({}), 3))('stray non-Latin characters are rejected', () => {
+    const { valid, rule } = validateResponse({ validate: 'Aku di sini陪着 kamu.', reassure: 'B.', redirect: 'C.' }, 'id');
+    expect(valid).toBe(false);
+    expect(rule).toBe('foreign_script');
+  });
+});
+
+// ─── Fallback: situation detection ──────────────────────────────────────────
+
+describe('fallback — situation detection', () => {
+  test.each(runNTimes(() => ({}), 3))('ID utterances', () => {
+    expect(detectTheme(ID_UTTERANCES.visitor, 'id')).toBe('asking_person');
+    expect(detectTheme(ID_UTTERANCES.visitorFull, 'id')).toBe('go_home');
+    expect(detectTheme(ID_UTTERANCES.anxiety, 'id')).toBe('scared');
+    expect(detectTheme(ID_UTTERANCES.anxietyMixed, 'id')).toBe('scared');
+    expect(detectTheme(ID_UTTERANCES.disorientation, 'id')).toBe('not_recognise');
+  });
+
+  test.each(runNTimes(() => ({}), 3))('EN utterances', () => {
+    expect(detectTheme(EN_UTTERANCES.visitor, 'en')).toBe('asking_person');
+    expect(detectTheme(EN_UTTERANCES.anxiety, 'en')).toBe('scared');
+    expect(detectTheme(EN_UTTERANCES.disorientation, 'en')).toBe('not_recognise');
+    expect(detectTheme('Where am I?', 'en')).toBe('confused');
   });
 
   test.each(runNTimes(() => ({}), 3))('falls back to generic for noise/empty', () => {
@@ -184,54 +213,39 @@ describe('fallback — theme detection', () => {
   });
 });
 
-// ─── Fallback: script structure ─────────────────────────────────────────────
+// ─── Fallback: every piece and every combination obeys the guardrails ───────
 
-describe('fallback — script structure', () => {
+describe('fallback — library structure', () => {
   const LANGS = ['id', 'en'];
-  const THEMES = ['visitor', 'anxiety', 'disorientation', 'generic'];
+  const SLOTS = ['validate', 'reassure', 'redirect'];
 
-  test.each(runNTimes(() => ({}), 3))('every theme+lang has 3 fields', () => {
-    for (const lang of LANGS) {
-      for (const theme of THEMES) {
-        const fallback = getFallback('test', lang);
-        expect(fallback).toHaveProperty('validate');
-        expect(fallback).toHaveProperty('reassure');
-        expect(fallback).toHaveProperty('redirect');
-        expect(typeof fallback.validate).toBe('string');
-        expect(typeof fallback.reassure).toBe('string');
-        expect(typeof fallback.redirect).toBe('string');
+  test.each(runNTimes(() => ({}), 3))('≥12 categories, ≥3 variants per slot (4 here), both languages', () => {
+    expect(Object.keys(THEMES).length).toBeGreaterThanOrEqual(12);
+    expect(Object.keys(THEMES)).toContain('generic');
+    for (const theme of Object.values(THEMES)) {
+      for (const lang of LANGS) for (const slot of SLOTS) {
+        expect(theme[lang][slot].length).toBeGreaterThanOrEqual(3);
+        for (const piece of theme[lang][slot]) expect(typeof piece).toBe('string');
       }
     }
   });
 
-  test.each(runNTimes(() => ({}), 3))('fallback scripts are ≤25 words each', () => {
-    for (const lang of LANGS) {
-      for (const theme of THEMES) {
-        const fb = getFallback('test', lang);
-        const total = countWords(fb.validate) + countWords(fb.reassure) + countWords(fb.redirect);
-        expect(total).toBeLessThanOrEqual(25);
-      }
-    }
-  });
-
-  test.each(runNTimes(() => ({}), 3))('fallback scripts have no question marks or banned phrases', () => {
-    for (const lang of LANGS) {
-      for (const theme of THEMES) {
-        const fb = getFallback('test', lang);
-        expect(hasQuestion(fb.validate)).toBe(false);
-        expect(hasQuestion(fb.reassure)).toBe(false);
-        expect(hasQuestion(fb.redirect)).toBe(false);
-        expect(hasBannedPhrase(fb.validate, lang)).toBe(false);
-        expect(hasBannedPhrase(fb.reassure, lang)).toBe(false);
-        expect(hasBannedPhrase(fb.redirect, lang)).toBe(false);
+  test.each(runNTimes(() => ({}), 3))('every combination passes the validator (≤25 words, no ?, no banned phrase)', () => {
+    for (const theme of Object.values(THEMES)) {
+      for (const lang of LANGS) {
+        const s = theme[lang];
+        for (const v of s.validate) for (const r of s.reassure) for (const d of s.redirect) {
+          expectValid({ validate: v, reassure: r, redirect: d }, lang);
+          expect(hasQuestion(v + r + d)).toBe(false);
+        }
       }
     }
   });
 
   test.each(runNTimes(() => ({}), 3))('returns _theme metadata', () => {
-    expect(getFallback(ID_UTTERANCES.visitor, 'id')._theme).toBe('visitor');
-    expect(getFallback(ID_UTTERANCES.anxiety, 'id')._theme).toBe('anxiety');
-    expect(getFallback(ID_UTTERANCES.disorientation, 'id')._theme).toBe('disorientation');
+    expect(getFallback(ID_UTTERANCES.visitor, 'id')._theme).toBe('asking_person');
+    expect(getFallback(ID_UTTERANCES.anxiety, 'id')._theme).toBe('scared');
+    expect(getFallback(EN_UTTERANCES.disorientation, 'en')._theme).toBe('not_recognise');
   });
 });
 

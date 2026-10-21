@@ -4,15 +4,16 @@
  * ("Timothy sedang beristirahat sebentar di kamar sebelah") and addressed the patient as "Ibu".
  *
  * Prompt-content checks always run. The live-model cases call Gemini and run only with
- * LIVE_LLM=1 (needs GEMINI_API_KEY):  LIVE_LLM=1 npx jest factuality
+ * RUN_LIVE_LLM_TESTS=1 (legacy: LIVE_LLM=1; needs GEMINI_API_KEY):  RUN_LIVE_LLM_TESTS=1 npx jest factuality
  * Each live case runs 3x per language.
  */
 
-if (process.env.LIVE_LLM === '1') {
+const WANT_LIVE = process.env.RUN_LIVE_LLM_TESTS === '1' || process.env.LIVE_LLM === '1';
+if (WANT_LIVE) {
   require('dotenv').config({ path: require('path').resolve(__dirname, '../../../.env') });
 }
 
-const LIVE = process.env.LIVE_LLM === '1' && Boolean(process.env.GEMINI_API_KEY);
+const LIVE = WANT_LIVE && Boolean(process.env.GEMINI_API_KEY);
 // Live runs test model behaviour, not latency: widen the budget so a slow call is not masked by a fallback
 // (.env's LLM_TIMEOUT_MS is deliberately overridden here; LIVE_LLM_TIMEOUT_MS changes it)
 if (LIVE) process.env.LLM_TIMEOUT_MS = process.env.LIVE_LLM_TIMEOUT_MS || '8000';
@@ -65,15 +66,26 @@ describe('prompt — facts only from context (both languages)', () => {
   test.each(['en', 'id'])('%s system prompt forbids invented whereabouts, times, activities and names', (language) => {
     const text = buildPrompt({ transcript: 'Where is Timothy?', daily_items: [], permanent_items: [], language }).template;
     if (language === 'en') {
-      expect(text).toContain('may ONLY state facts written in the daily/permanent context');
-      expect(text).toContain('NEVER invent where a person is, when they will arrive, what they are doing');
-      expect(text).toContain('You are safe, and I am here with you.');
-      expect(text).toContain("Do not assume the patient's gender, title");
+      expect(text).toContain('Take it ONLY from the caregiver notes');
+      expect(text).toContain('Never invent where someone is, when someone comes, events, names, relationships');
+      expect(text).toContain('say that you are here with them, phrased around their topic');
+      expect(text).toContain("the person's title or gender");
     } else {
-      expect(text).toContain('HANYA boleh menyebut fakta yang tertulis di konteks harian/tetap');
-      expect(text).toContain('JANGAN PERNAH mengarang di mana seseorang berada, kapan ia datang, apa yang sedang ia lakukan');
-      expect(text).toContain('Kamu aman, dan aku di sini bersamamu.');
-      expect(text).toContain('Jangan menganggap jenis kelamin, sapaan');
+      expect(text).toContain('Ambil HANYA dari catatan caregiver');
+      expect(text).toContain('Jangan pernah mengarang di mana seseorang berada, kapan seseorang datang');
+      expect(text).toContain('katakan bahwa kamu ada di sini bersamanya, dikaitkan dengan topiknya');
+      expect(text).toContain('sapaan/jenis kelamin pasien');
+    }
+  });
+
+  test.each(['en', 'id'])('%s prompts contain no copyable example sentences (no quoted replies, no tea)', (language) => {
+    const { buildShortPrompt } = require('../prompts');
+    for (const text of [
+      buildPrompt({ transcript: 'x', daily_items: [], permanent_items: [], language }).template,
+      buildShortPrompt({ transcript: 'x', daily_items: [], permanent_items: [], language }).template,
+    ]) {
+      expect(text).not.toMatch(/(teh|tea)/i);
+      expect(text).not.toMatch(/misalnya "|such as "|for example "/i);
     }
   });
 

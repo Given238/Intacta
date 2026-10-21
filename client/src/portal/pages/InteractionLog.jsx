@@ -200,6 +200,7 @@ function LogRow({ row, time, open, onToggle }) {
   const reply  = replyText(row.ai_response)
   const panelId = `log-${row.id}`
   const hasAudio = !!row.audio_available && Array.isArray(row.waveform_peaks) && row.waveform_peaks.length > 0
+  const backup   = !!row.ai_response?._fallback // static fallback (the model reply failed or timed out)
 
   return (
     <div className="py-[8px]">
@@ -213,6 +214,7 @@ function LogRow({ row, time, open, onToggle }) {
         >
           <span className="text-display whitespace-nowrap text-[19px] leading-[20px] tracking-[0.1px]">{time}</span>
           <ChevronDown size={18} aria-hidden="true" className={`shrink-0 text-intacta-text transition-transform ${open ? 'rotate-180' : ''}`} />
+          {backup && <BackupTag />}
         </button>
         {hasAudio ? <WaveformPill row={row} /> : <SourcePill source={row.source} />}
       </div>
@@ -236,13 +238,26 @@ function LogRow({ row, time, open, onToggle }) {
             <>
               <p className="text-title-semibold text-intacta-text">{t('portal.patient.patientSaid')}</p>
               <p className="text-body-regular whitespace-pre-line break-words">{row.transcript || '–'}</p>
-              <p className="text-title-semibold mt-[8px] text-intacta-text">{t('portal.patient.intactaReplied')}</p>
+              <p className="text-title-semibold mt-[8px] flex items-center gap-2 text-intacta-text">
+                {t('portal.patient.intactaReplied')}
+                {backup && <BackupTag />}
+              </p>
               <p className="text-body-regular whitespace-pre-line break-words">{reply || '–'}</p>
             </>
           )}
         </div>
       )}
     </div>
+  )
+}
+
+/* Small tag on static fallback replies (B4 observability) */
+function BackupTag() {
+  const { t } = useTranslation()
+  return (
+    <span title={t('portal.patient.backupReplyHint')} className="text-title-semibold rounded-full border border-white/40 px-[6px] py-[1px] text-[11px] leading-[16px] text-intacta-text">
+      {t('portal.patient.backupReply')}
+    </span>
   )
 }
 

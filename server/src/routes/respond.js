@@ -2,7 +2,7 @@ const router = require('express').Router();
 const multer = require('multer');
 const { authenticateDevice } = require('../middleware/deviceAuth');
 const { runChain } = require('../llm/chain');
-const { loadPatientContext } = require('../llm/contextLoader');
+const { loadPatientContext, loadRecentExchanges, loadUpcomingRoutines, jakartaTimeOfDay } = require('../llm/contextLoader');
 const { logInteraction } = require('../llm/interactionLogger');
 const stt = require('../services/sttService');
 
@@ -76,7 +76,12 @@ router.post('/', authenticateDevice, audioUpload, async (req, res) => {
   }
   transcript = transcript.trim();
 
-  const timeOfDay = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const timeOfDay = jakartaTimeOfDay();
+  // Variety + situation inputs; a failure here only makes the reply less specific, never an error
+  const [recent, upcomingRoutines] = await Promise.all([
+    loadRecentExchanges(req.patientId).catch(err => { console.error('loadRecentExchanges error:', err.message); return []; }),
+    loadUpcomingRoutines(req.patientId).catch(err => { console.error('loadUpcomingRoutines error:', err.message); return []; }),
+  ]);
 
   const start = Date.now();
   let aiResponse;
@@ -88,6 +93,9 @@ router.post('/', authenticateDevice, audioUpload, async (req, res) => {
       max_speech_seconds: patient.max_speech_seconds,
       timeOfDay,
       language,
+      recent,
+      upcoming_routines: upcomingRoutines,
+      patientId: req.patientId,
     });
   } catch (err) {
     console.error('LLM chain error:', err.message);
@@ -127,6 +135,8 @@ router.post('/', authenticateDevice, audioUpload, async (req, res) => {
     meta: {
       fallback: aiResponse._fallback || false,
       theme:    aiResponse._theme    || null,
+      fallback_reason: aiResponse._reason || null,
+      stage:    aiResponse._stage    || null,
       latency_ms: latencyMs,
       stt_ms: sttMs,
     },

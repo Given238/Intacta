@@ -468,12 +468,14 @@ describe('Socket voice:test', () => {
 
 // ── LLM: context items in the prompt + word cap ──────────────────────────────
 describe('LLM prompt and word cap', () => {
-  it('wordCapFor = min(25, round(s * 2.5)); 0 or missing → 25', () => {
+  it('wordCapFor = min(25, round(s * 2.5)), never below 15; 0 or missing → 25', () => {
     expect(wordCapFor(0)).toBe(25);
     expect(wordCapFor(null)).toBe(25);
     expect(wordCapFor(undefined)).toBe(25);
-    expect(wordCapFor(4)).toBe(10);
-    expect(wordCapFor(5)).toBe(13); // 12.5 rounds up
+    expect(wordCapFor(1)).toBe(15); // floor: room for all three steps
+    expect(wordCapFor(4)).toBe(15);
+    expect(wordCapFor(6)).toBe(15);
+    expect(wordCapFor(7)).toBe(18); // 17.5 rounds up
     expect(wordCapFor(10)).toBe(25);
     expect(wordCapFor(15)).toBe(25);
   });
