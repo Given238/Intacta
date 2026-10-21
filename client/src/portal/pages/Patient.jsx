@@ -144,6 +144,7 @@ function SpeakBar({ socket, language, onError }) {
   const [recording, setRecording] = useState(false)
   const [sending,   setSending]   = useState(false)
   const [sent,      setSent]      = useState(false)
+  const [unsafe,    setUnsafe]    = useState(false)
   const recognitionRef = useRef(null)
 
   useEffect(() => () => recognitionRef.current?.abort(), [])
@@ -182,14 +183,20 @@ function SpeakBar({ socket, language, onError }) {
     }
     recognitionRef.current?.stop()
     setSending(true)
+    setUnsafe(false)
     try {
       await emitWithAck(socket, 'broadcast:message', { patientId: sessionPatientId(getSession()), text: clean })
       setText('')
       setSent(true)
       setTimeout(() => setSent(false), 2500)
     } catch (err) {
+      if (err.code === 'unsafe_content') {
+        setUnsafe(true) // keep the text so it can be rephrased
+        return
+      }
       console.error('broadcast failed:', err.message)
-      onError(err.message === 'offline' ? t('portal.patient.sendOffline') : t('portal.patient.sendFailed'))
+      if (err.code === 'rate_limited') onError(t('portal.safety.rateLimited'))
+      else onError(err.message === 'offline' ? t('portal.patient.sendOffline') : t('portal.patient.sendFailed'))
     } finally {
       setSending(false)
     }
@@ -217,7 +224,9 @@ function SpeakBar({ socket, language, onError }) {
             type="text"
             enterKeyHint="send"
             value={text}
-            onChange={e => { setText(e.target.value); setSent(false) }}
+            onChange={e => { setText(e.target.value); setSent(false); setUnsafe(false) }}
+            aria-invalid={unsafe}
+            aria-describedby="speak-now-status"
             placeholder={recording ? t('portal.patient.listening') : t('portal.patient.speakNow')}
             className="text-body-light min-w-0 flex-1 bg-transparent text-[15px] tracking-[0.1px] text-black outline-none placeholder:text-[#7a7e80]"
           />
@@ -231,8 +240,10 @@ function SpeakBar({ socket, language, onError }) {
           </button>
         </div>
       </div>
-      <p aria-live="polite" className="text-body-medium min-h-[16px] pl-[61px] pt-[2px] text-[12px] text-intacta-text">
-        {sent ? t('portal.patient.sent') : (text.trim().length > 160 ? `${text.trim().length}/${BROADCAST_MAX}` : '')}
+      <p id="speak-now-status" aria-live="polite" className={`text-body-medium min-h-[16px] pl-[61px] pt-[2px] text-[12px] ${unsafe ? 'text-[#ffb4b4]' : 'text-intacta-text'}`}>
+        {unsafe
+          ? t('portal.safety.unsafe')
+          : sent ? t('portal.patient.sent') : (text.trim().length > 160 ? `${text.trim().length}/${BROADCAST_MAX}` : '')}
       </p>
     </form>
   )

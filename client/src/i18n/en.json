@@ -218,7 +218,7 @@
         "time": "Enter a valid time (HH:MM).",
         "category": "Choose a category.",
         "script": "Enter the sentence the tablet will say.",
-        "scriptLong": "Keep it to 1000 characters or fewer."
+        "scriptLong": "Keep it to {{max}} characters or fewer."
       }
     },
     "settings": {
@@ -271,6 +271,16 @@
         }
       },
       "recordingNotice": "Voice clips are kept for a limited time, and you can delete them."
+    },
+    "safety": {
+      "unsafe": "This message could frighten or upset the patient. Please rephrase it gently, for example: 'Timothy will be home at 5.'",
+      "blocked": "Blocked for safety",
+      "blockedHint": "Never sent to the tablet. Edit or delete it.",
+      "rateLimited": "Too many messages in a minute. Please wait a moment.",
+      "edit": "Edit",
+      "editItem": "Edit note: {{text}}",
+      "save": "Save",
+      "cancel": "Cancel"
     }
   }
 }

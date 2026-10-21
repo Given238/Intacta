@@ -54,7 +54,7 @@ const createRoutineSchema = z.object({
   days:         daysField.optional(),
   trigger_time: z.string().regex(TIME_24H, { message: 'trigger_time must be in HH:MM 24-hour format' }),
   category:     z.enum(['meal', 'medication', 'hygiene', 'other']),
-  audio_script: z.string().max(1000).nullable().optional(),
+  audio_script: z.string().max(300).nullable().optional(), // spoken text: content-safety max
   display_text: z.string().max(255).nullable().optional(),
   is_active:    z.boolean().optional(),
 });
@@ -64,7 +64,7 @@ const updateRoutineSchema = z.object({
   days:         daysField.optional(),
   trigger_time: z.string().regex(TIME_24H, { message: 'trigger_time must be in HH:MM 24-hour format' }).optional(),
   category:     z.enum(['meal', 'medication', 'hygiene', 'other']).optional(),
-  audio_script: z.string().max(1000).nullable().optional(),
+  audio_script: z.string().max(300).nullable().optional(), // spoken text: content-safety max
   display_text: z.string().max(255).nullable().optional(),
   is_active:    z.boolean().optional(),
 });

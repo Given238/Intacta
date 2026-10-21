@@ -48,7 +48,7 @@ export function emitWithAck(socket, event, payload, timeoutMs = 5000) {
     }
     socket.timeout(timeoutMs).emit(event, payload, (err, ack) => {
       if (err) reject(new Error('timeout'))
-      else if (!ack?.success) reject(new Error(ack?.error || 'failed'))
+      else if (!ack?.success) reject(Object.assign(new Error(ack?.error || 'failed'), { code: ack?.code || null, category: ack?.category || null }))
       else resolve(ack)
     })
   })

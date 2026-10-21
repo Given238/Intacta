@@ -1,11 +1,17 @@
 const { query } = require('../db/query');
 const { logAudit } = require('../services/audit');
-const { initialLastFiredOn } = require('../services/routineScheduler');
+const { initialLastFiredOn, recheckRoutine } = require('../services/routineScheduler');
+const { blockIfUnsafe, unsafeBody } = require('../services/safetyGate');
+
+/** Patient-facing routine fields: the scheduler speaks audio_script, else display_text, else title. */
+const spokenFields = (b) => [b.title, b.audio_script, b.display_text];
 
 /*
  * trigger_time is wall-clock time in Asia/Jakarta (TIME, no zone); the scheduler reads it with the
  * Jakarta clock. last_fired_on is set when a routine is created or re-timed after its time today, so it
  * is not fired late or logged as missed for today.
+ * Title, audio_script and display_text are safety-checked before saving (unsafe → 422 unsafe_content); listing
+ * re-checks stored rows and flags failures in blocked_category (the scheduler never fires those).
  */
 
 async function listRoutines(req, res) {
@@ -16,7 +22,9 @@ async function listRoutines(req, res) {
   if (byId.rows.length === 0) return res.status(404).json({ error: 'Patient not found' });
   if (byId.rows[0].caregiver_id !== req.caregiverId) return res.status(403).json({ error: 'Access denied to this patient' });
   const result = await query('SELECT * FROM routines WHERE patient_id = $1 ORDER BY trigger_time ASC', [patientId]);
-  return res.json({ routines: result.rows });
+  const routines = [];
+  for (const r of result.rows) routines.push(await recheckRoutine(r));
+  return res.json({ routines });
 }
 
 async function createRoutine(req, res) {
@@ -25,6 +33,8 @@ async function createRoutine(req, res) {
   const byId = await query('SELECT id, caregiver_id FROM patients WHERE id = $1', [patientId]);
   if (byId.rows.length === 0) return res.status(404).json({ error: 'Patient not found' });
   if (byId.rows[0].caregiver_id !== req.caregiverId) return res.status(403).json({ error: 'Access denied to this patient' });
+  const blocked = await blockIfUnsafe({ texts: spokenFields(req.body), kind: 'routine', caregiverId: req.caregiverId });
+  if (blocked) return res.status(422).json(unsafeBody(blocked.category));
   const result = await query(
     `INSERT INTO routines (patient_id, title, days, trigger_time, category, audio_script, display_text, is_active, last_fired_on)
      VALUES ($1, $2, COALESCE($3::smallint[], '{0,1,2,3,4,5,6}'), $4, $5, $6, $7, $8, $9) RETURNING *`,
@@ -62,6 +72,8 @@ async function updateRoutine(req, res) {
   );
   if (check.rows.length === 0) return res.status(404).json({ error: 'Routine not found' });
   if (check.rows[0].caregiver_id !== req.caregiverId) return res.status(403).json({ error: 'Access denied to this routine' });
+  const blocked = await blockIfUnsafe({ texts: spokenFields(req.body), kind: 'routine', caregiverId: req.caregiverId });
+  if (blocked) return res.status(422).json(unsafeBody(blocked.category));
   // Re-timed (time or days): fire again today only if the new time is still ahead.
   const retimed = trigger_time !== undefined || days !== undefined;
   const lastFiredOn = retimed
@@ -71,11 +83,11 @@ async function updateRoutine(req, res) {
     `UPDATE routines SET trigger_time = COALESCE($1, trigger_time), category = COALESCE($2, category),
      audio_script = COALESCE($3, audio_script), display_text = COALESCE($4, display_text),
      is_active = COALESCE($5, is_active), title = COALESCE($6, title),
-     days = COALESCE($7::smallint[], days), last_fired_on = $9 WHERE id = $8 RETURNING *`,
+     days = COALESCE($7::smallint[], days), last_fired_on = $9, blocked_category = NULL WHERE id = $8 RETURNING *`,
     [trigger_time, category, audio_script, display_text, is_active, title, days, id, lastFiredOn]
   );
   await logAudit({ caregiverId: req.caregiverId, action: 'routine.update', payload: { id, title, days, trigger_time, category, is_active } });
-  return res.json({ routine: result.rows[0] });
+  return res.json({ routine: await recheckRoutine(result.rows[0]) });
 }
 
 async function deleteRoutine(req, res) {

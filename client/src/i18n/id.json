@@ -218,7 +218,7 @@
         "time": "Isi waktu yang valid (JJ:MM).",
         "category": "Pilih kategori.",
         "script": "Isi kalimat yang akan diucapkan tablet.",
-        "scriptLong": "Maksimal 1000 karakter."
+        "scriptLong": "Maksimal {{max}} karakter."
       }
     },
     "settings": {
@@ -271,6 +271,16 @@
         }
       },
       "recordingNotice": "Rekaman suara disimpan untuk waktu terbatas, dan Anda dapat menghapusnya."
+    },
+    "safety": {
+      "unsafe": "Pesan ini bisa membuat pasien takut atau sedih. Mohon tulis ulang dengan lembut, misalnya: 'Timothy akan pulang jam 5.'",
+      "blocked": "Diblokir demi keamanan",
+      "blockedHint": "Tidak pernah dikirim ke tablet. Ubah atau hapus.",
+      "rateLimited": "Terlalu banyak pesan dalam satu menit. Mohon tunggu sebentar.",
+      "edit": "Ubah",
+      "editItem": "Ubah catatan: {{text}}",
+      "save": "Simpan",
+      "cancel": "Batal"
     }
   }
 }

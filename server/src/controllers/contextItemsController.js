@@ -1,11 +1,13 @@
 /**
  * contextItemsController.js — CRUD /api/context-items (caregiver JWT).
  * Every mutation is audited and emits a non-volatile context:sync to patient:{id}.
+ * Text is safety-checked before it is saved: unsafe → 422 {code:'unsafe_content', category}.
  */
 
 const { patientAccess, ACCESS_ERRORS } = require('../services/ownership');
 const contextService = require('../services/contextService');
 const { logAudit } = require('../services/audit');
+const { blockIfUnsafe, unsafeBody } = require('../services/safetyGate');
 
 /** Loads the item and checks the caregiver owns its patient; sends the error response if not. */
 async function loadOwnedItem(req, res) {
@@ -44,6 +46,8 @@ async function createContextItem(req, res) {
   try {
     const access = await patientAccess(patientId, req.caregiverId);
     if (access !== 200) return res.status(access).json(ACCESS_ERRORS[access]);
+    const blocked = await blockIfUnsafe({ texts: [text], kind: 'context', caregiverId: req.caregiverId });
+    if (blocked) return res.status(422).json(unsafeBody(blocked.category));
     const item = await contextService.createItem({ patientId, scope, text });
     await logAudit({ caregiverId: req.caregiverId, action: 'context_item.create', payload: { patientId, id: item.id, scope, text } });
     await contextService.emitContextSync(req.app.get('io'), patientId);
@@ -58,6 +62,8 @@ async function updateContextItem(req, res) {
   try {
     const existing = await loadOwnedItem(req, res);
     if (!existing) return;
+    const blocked = await blockIfUnsafe({ texts: [req.body.text], kind: 'context', caregiverId: req.caregiverId });
+    if (blocked) return res.status(422).json(unsafeBody(blocked.category));
     const item = await contextService.updateItem(existing.id, req.body.text);
     await logAudit({ caregiverId: req.caregiverId, action: 'context_item.update', payload: { id: item.id, text: item.text } });
     await contextService.emitContextSync(req.app.get('io'), item.patient_id);

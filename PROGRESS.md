@@ -1,6 +1,6 @@
 # Intacta — Progress Status
 
-Last updated: 2026-10-12
+Last updated: 2026-10-21
 Branch: `wip-recovery` (Phase 3 terminal + 3a/3b backend committed in `ccba0fc`; portal C1–C2 committed per screen)
 
 ---
@@ -690,6 +690,33 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
 
 ---
 
+## Safety, replies, layout session (2026-10-21): A content safety → B replies → C type + responsive
+
+### Part A: content safety (DONE, committed locally)
+- `server/src/services/contentSafety.js`: `checkPatientFacingText(text, {language, kind})` → `{ok, category, reason}`.
+  Tier 1 rules (ID + EN, normalised: accents, punctuation, leetspeak, stretched letters; negation window for instruction
+  rules so "Jangan sentuh kompor ya" passes). Tier 2 Gemini classifier (2.5 s, `GEMINI_SAFETY_MODEL` else `GEMINI_MODEL`),
+  Tier 1 decides on failure with a `[safety]` warning. `checkTier1` is the sync rule check.
+- `server/src/services/safetyGate.js`: check + audit `content.blocked` `{kind, category}` (never the text).
+- Enforced before save/emit: POST/PUT `/api/context-items` (422), routines create/update (title, audio_script,
+  display_text; 422), `broadcast:message` (ack `unsafe_content`; 10/min per caregiver → `rate_limited`), `voice:test`.
+- Re-check of stored rows (Tier 1): `contextService.recheckItems` (portal list + LLM/terminal snapshot, blocked rows
+  left out), `routineScheduler.recheckRoutine` (list + every tick; blocked routines never fire nor log "missed").
+  Migration `007_content_safety.sql` adds `blocked_category` to `context_items` and `routines` (applied to the dev DB).
+- Output side: every AI reply is Tier-1 checked in `llm/chain.js` (fails → fallback); prompts wrap the patient words and
+  notes in `<<<PATIENT …>>>` / `<<<NOTES …>>>` as data and forbid deaths/threats/illness/hospital.
+- Fixed on the way: fallback replies now carry `text` + `parts` (old known bugs 12 and 22).
+- Portal: inline refusal message (i18n `portal.safety.*`) in Context (add + new inline edit), RoutineForm (form now waits for
+  the server), Patient broadcast; red "Blocked for safety" label on context items and routine rows. `emitWithAck` keeps the
+  ack `code`. Routine script max lowered 1000 → 300 (the content-safety max; flagged).
+- Tests: `server/src/__tests__/content-safety.test.js` (Tier-1-only lists, mocked classifier: block, low confidence,
+  error, invalid shape, 2.5 s timeout; controllers, broadcast, rate limit, re-check, scheduler, reply fallback).
+  **A6 result (Tier 1 only): MUST-BLOCK 8/8 blocked, MUST-ALLOW 7/7 allowed.** With a mocked agreeing classifier: same.
+- Live Tier 2 check (2026-10-21): every classifier call timed out at 2.5 s, so Tier 1 decided (as designed). Raw calls
+  to the Gemini API from this machine took 20–64 s even for "Say OK." (0 thinking tokens), with intermittent connect
+  failures (TCP connect up to 7.9 s); `thinkingBudget: 0` is rejected (400) by `gemini-3.5-flash-lite` over REST
+  (LangChain 0.1.12 drops it, so no error there). Re-run when the network is normal.
+
 ## Session summary: voice + routines (2026-10-12)
 - **Done**: A (ElevenLabs `/api/tts`, voices by gender, Tap-to-start, shared audio element + analyser, browser speech
   fallback, portal voice + Test Voice), B (Silero VAD mic, server STT with Gemini audio, mic state machine with 3.0 s
@@ -715,7 +742,7 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
 3. Fallback scripts (up to ~21 words) can exceed a reduced per-patient cap (e.g. max_speech_seconds 8 → 20 words).
 4. Remaining Figma routines (frame 60:30) not seeded: `TODO(wire)` in `src/db/seed.js`.
 5. "Today" uses Postgres `CURRENT_DATE` (server timezone). On a UTC host, daily items roll over at 07:00 WIB.
-6. Broadcast text is caregiver-authored and is not passed through the LLM validator (length check only).
+6. ~~Broadcast text is not checked~~ fixed 2026-10-21: content safety (Part A) checks it before it is emitted.
 7. `routinesController.js` still has no try/catch around DB calls (pre-existing).
 8. Client still on the old contract: `/api/respond` sent with `Authorization: Bearer`
    instead of `x-device-token`; calls non-existent `/api/patients/me`; `device:status` without battery is rejected;
@@ -729,14 +756,14 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
     whose terminal reconnects after midnight is never delivered or logged (the new Jakarta day starts clean).
 21. `devices.is_online` is never set false on disconnect, so the portal shows a closed tablet as Online (seen during
     Part A/C checks). The scheduler does not use this flag (it checks live sockets).
-22. Fallback replies still have no `text` (item 12), so a voice utterance that falls back is spoken as the client's
+22. ~~Fallback replies still have no `text`~~ fixed 2026-10-21. Was: (item 12), so a voice utterance that falls back is spoken as the client's
     "I am here with you." / "Saya di sini bersama Anda.".
 19. CLAUDE.md target "terminal returns to clock mode 60 s after audio ends" no longer holds: clock mode is removed and
     replies return to the greeting 8 s after speaking (per the 2026-10-12 brief). Needs a decision / CLAUDE.md update.
 20. Terminal language stays `en` after pairing an `id` patient (`/api/patients/me` doesn't exist; part of item 8).
 11. **Every LLM call fails**: Gemini returns 404 "models/gemini-2.5-flash-lite is no longer available to new users"
     (suggests `gemini-3.5-flash-lite`). The model is pinned in CLAUDE.md; needs a decision. `chain.js` catch hides the error.
-12. **Fallback replies have no text**: `getFallback` returns `{validate, reassure, redirect, _theme}` but `/api/respond`
+12. ~~Fallback replies have no text~~ fixed 2026-10-21 (`fallbackReply` in `llm/chain.js`). Was: `getFallback` returns `{validate, reassure, redirect, _theme}` but `/api/respond`
     sends `aiResponse.text`/`parts`, so every fallback is a 200 with an empty reply (also `llm:try` prints `text: undefined`).
 13. An unpaired device's token gets 401 "Invalid device token" on `/api/respond` (the only device in the DB right now
     is unpaired). Pair the tablet, or run `npm run db:seed` and use the printed token.
@@ -761,6 +788,8 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
 ---
 
 ## NEXT
+- IN PROGRESS (2026-10-21): Part B (situation-specific replies, fallback ladder) then Part C (type scale + responsive).
+- Re-run the live Tier 2 safety check once the Gemini API is reachable at normal speed (see Part A).
 - Tablet test of Parts A–C (lists under "Voice and routines"); restart `npm run dev` first so `/vad/` assets are served.
 - Delete spurious routine "missed" rows 50 and 51 if patients 7 / 13 are real (see Part C side effects).
 - Decide on STT latency (Gemini audio 1.4–2.5 s vs the 800 ms target): accept, or move to a streaming STT.

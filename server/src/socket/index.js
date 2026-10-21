@@ -13,6 +13,7 @@ const { buildSettingsSync, getSettings } = require('../services/settingsService'
 const { logAudit } = require('../services/audit');
 const { logInteraction } = require('../llm/interactionLogger');
 const { deliverPending } = require('../services/routineScheduler');
+const { blockIfUnsafe, UNSAFE_ERROR } = require('../services/safetyGate');
 
 function setupSocket(io) {
   // ── Dual-auth handshake middleware ─────────────────────────────────────────
@@ -152,8 +153,24 @@ async function caregiverOwns(socket, patientId, ack) {
 }
 
 const BROADCAST_MAX_CHARS = 200;
+const BROADCAST_LIMIT = 10;        // per caregiver
+const BROADCAST_WINDOW_MS = 60_000; // per minute
+const broadcastTimes = new Map();  // caregiverId → recent send timestamps
 
-/** caregiver → server → terminal: broadcast:message { patientId, text } → { text, created_at } */
+/** Sliding-window limit: true when this caregiver may send another broadcast now (and counts it). */
+function takeBroadcastSlot(caregiverId, now = Date.now()) {
+  const recent = (broadcastTimes.get(caregiverId) || []).filter(t => now - t < BROADCAST_WINDOW_MS);
+  if (recent.length >= BROADCAST_LIMIT) {
+    broadcastTimes.set(caregiverId, recent);
+    return false;
+  }
+  recent.push(now);
+  broadcastTimes.set(caregiverId, recent);
+  return true;
+}
+
+/** caregiver → server → terminal: broadcast:message { patientId, text } → { text, created_at }
+ *  Safety-checked before it is logged or emitted; unsafe → ack {success:false, code:'unsafe_content', category}. */
 function handleBroadcast(io, socket) {
   return async (data, ack) => {
     const { patientId, text } = data || {};
@@ -166,6 +183,16 @@ function handleBroadcast(io, socket) {
     }
     try {
       if (!(await caregiverOwns(socket, patientId, ack))) return;
+      if (!takeBroadcastSlot(socket.caregiverId)) {
+        if (ack) ack({ success: false, code: 'rate_limited', error: `at most ${BROADCAST_LIMIT} messages per minute` });
+        return;
+      }
+      const language = (await loadContextSnapshot(patientId))?.language;
+      const blocked = await blockIfUnsafe({ texts: [clean], kind: 'broadcast', language, caregiverId: socket.caregiverId });
+      if (blocked) {
+        if (ack) ack({ success: false, code: 'unsafe_content', category: blocked.category, error: UNSAFE_ERROR });
+        return;
+      }
       const aiResponse = { text: clean, parts: [clean] };
       const log = await logInteraction({ patientId, transcript: clean, aiResponse, source: 'broadcast', latencyMs: 0 });
       await logAudit({ caregiverId: socket.caregiverId, action: 'broadcast.send', payload: { patientId, text: clean } });
@@ -200,8 +227,14 @@ function handleVoiceTest(io, socket) {
         loadContextSnapshot(patientId),
       ]);
       const language = snapshot?.language || 'en';
+      const text = VOICE_TEST_TEXT[language] || VOICE_TEST_TEXT.en;
+      const blocked = await blockIfUnsafe({ texts: [text], kind: 'voice_test', language, caregiverId: socket.caregiverId });
+      if (blocked) {
+        if (ack) ack({ success: false, code: 'unsafe_content', category: blocked.category, error: UNSAFE_ERROR });
+        return;
+      }
       io.to(`patient:${patientId}`).emit('voice:test', {
-        text:           VOICE_TEST_TEXT[language] || VOICE_TEST_TEXT.en,
+        text,
         language,
         voice_gender:   settings.voice_gender,
         playback_speed: settings.playback_speed,
@@ -249,6 +282,8 @@ function handleDeviceStatus(io, socket) {
 
 module.exports = setupSocket;
 module.exports.handleBroadcast    = handleBroadcast;
+module.exports.takeBroadcastSlot  = takeBroadcastSlot;
+module.exports.broadcastTimes     = broadcastTimes;
 module.exports.handleVoiceTest    = handleVoiceTest;
 module.exports.sendTerminalState  = sendTerminalState;
 module.exports.handleDeviceStatus  = handleDeviceStatus;

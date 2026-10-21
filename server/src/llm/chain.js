@@ -7,8 +7,16 @@ const { getStructuredModel } = require('./model');
 const { buildPrompt, wordCapFor } = require('./prompts');
 const { validateResponse, countWords } = require('./validator');
 const { getFallback } = require('./fallbacks');
+const { checkTier1 } = require('../services/contentSafety');
 
 const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 1200;
+
+/** Static fallback in the reply shape the routes send ({text, parts}). */
+function fallbackReply(transcript, language) {
+  const fb = getFallback(transcript, language);
+  const parts = [fb.validate, fb.reassure, fb.redirect].filter(Boolean);
+  return { ...fb, text: parts.join(' '), parts, _fallback: true };
+}
 
 /**
  * Dev-only: why did we fall back? Never logs the key itself, only whether it is set.
@@ -55,7 +63,7 @@ async function runChain(input) {
     } catch (err) {
       if (isAbort(err)) {
         logFallback('timeout', err);
-        return { ...getFallback(transcript, language), _fallback: true };
+        return fallbackReply(transcript, language);
       }
       logFallback('first_attempt (retrying)', err);
       // Retry once
@@ -63,7 +71,7 @@ async function runChain(input) {
     }
   } catch (err) {
     logFallback('retry', err);
-    return { ...getFallback(transcript, language), _fallback: true };
+    return fallbackReply(transcript, language);
   } finally {
     clearTimeout(timeout);
   }
@@ -91,6 +99,12 @@ async function callLLM(prompt, language, maxWords, signal) {
 
   const parts = [parsed.validate, parsed.reassure, parsed.redirect].filter(Boolean);
   const text = parts.join(' ');
+
+  // Content safety on the way out (A4): threats, distressing facts (death, illness, hospital) → fallback path
+  const safety = checkTier1(text, { kind: 'reply' });
+  if (!safety.ok) {
+    throw new Error(`Validation failed: unsafe reply (${safety.category})`);
+  }
 
   return { text, parts, _fallback: false, _theme: null };
 }

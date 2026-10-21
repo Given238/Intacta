@@ -8,11 +8,15 @@
  *
  * Data: GET /api/context-items (today's daily + permanent), POST / DELETE with optimistic update + rollback.
  * Every mutation makes the server push context:sync to the paired terminal.
+ * Safety: the server refuses text that could frighten the patient (422 unsafe_content) → inline message, text kept.
+ * Stored items that fail a re-check come back with blocked_category: shown with a red "Blocked for safety" label,
+ * never sent to the tablet, still editable (PUT) and deletable.
  */
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 
+import penIcon        from '../../assets/icons/pen.svg'
 import trashIcon      from '../../assets/icons/trash.svg'
 import plusCircleIcon from '../../assets/icons/plus-circle.svg'
 import { portalFetch } from '../portalApi'
@@ -54,13 +58,31 @@ export default function Context() {
         body: JSON.stringify({ patientId: sessionPatientId(getSession()), scope, text }),
       })
       setData(d => ({ ...d, [scope]: d[scope].map(i => (i.id === temp.id ? item : i)) }))
-      return true
+      return 'ok'
     } catch (err) {
-      if (err.code === 'unauthorized') return false
-      console.error('add context failed:', err.message)
       setData(d => ({ ...d, [scope]: d[scope].filter(i => i.id !== temp.id) }))
+      if (err.code === 'unauthorized') return 'error'
+      if (err.code === 'unsafe_content') return 'unsafe'
+      console.error('add context failed:', err.message)
       showToast(t('portal.context.addFailed'))
-      return false
+      return 'error'
+    }
+  }
+
+  const editItem = async (scope, item, text) => {
+    try {
+      const { item: saved } = await portalFetch(`/api/context-items/${item.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ text }),
+      })
+      setData(d => ({ ...d, [scope]: d[scope].map(i => (i.id === item.id ? saved : i)) }))
+      return 'ok'
+    } catch (err) {
+      if (err.code === 'unauthorized') return 'error'
+      if (err.code === 'unsafe_content') return 'unsafe'
+      console.error('edit context failed:', err.message)
+      showToast(t('portal.context.addFailed'))
+      return 'error'
     }
   }
 
@@ -96,6 +118,7 @@ export default function Context() {
               scope={scope}
               items={data[scope]}
               onAdd={text => addItem(scope, text)}
+              onEdit={(item, text) => editItem(scope, item, text)}
               onDelete={item => deleteItem(scope, item)}
             />
           ))}
@@ -105,7 +128,7 @@ export default function Context() {
   )
 }
 
-function ContextCard({ scope, items, onAdd, onDelete }) {
+function ContextCard({ scope, items, onAdd, onEdit, onDelete }) {
   const { t } = useTranslation()
   const [text,       setText]       = useState('')
   const [inputError, setInputError] = useState(null)
@@ -135,9 +158,10 @@ function ContextCard({ scope, items, onAdd, onDelete }) {
     setInputError(null)
     setSaving(true)
     setText('')
-    const ok = await onAdd(trimmed)
+    const result = await onAdd(trimmed)
     setSaving(false)
-    if (!ok) setText(trimmed) // give the text back so it can be retried
+    if (result !== 'ok') setText(trimmed) // give the text back so it can be retried or rephrased
+    if (result === 'unsafe') setInputError(t('portal.safety.unsafe'))
   }
 
   const itemWeight = scope === 'daily' ? 'text-body-regular' : 'text-body-light'
@@ -153,39 +177,16 @@ function ContextCard({ scope, items, onAdd, onDelete }) {
           <li className="py-[6px]"><Empty>{t(`portal.context.${scope}.empty`)}</Empty></li>
         )}
         {items.map(item => (
-          <li key={item.id} className="flex items-start gap-2">
-            <p className={`${itemWeight} min-w-0 flex-1 whitespace-pre-line break-words py-[6px] leading-normal ${item.pending ? 'opacity-60' : ''}`}>
-              {item.text}
-            </p>
-            {confirmId === item.id ? (
-              <span className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => { setConfirmId(null); onDelete(item) }}
-                  className="text-title-semibold min-h-[32px] rounded-full bg-[#dc2626] px-3 text-[12px] text-white"
-                >
-                  {t('portal.context.delete')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmId(null)}
-                  className="text-body-medium min-h-[32px] rounded-full px-2 text-[12px] text-intacta-text"
-                >
-                  {t('portal.common.cancel')}
-                </button>
-              </span>
-            ) : (
-              <button
-                type="button"
-                disabled={item.pending}
-                onClick={() => setConfirmId(item.id)}
-                aria-label={t('portal.context.deleteItem', { text: item.text })}
-                className="flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full disabled:opacity-40"
-              >
-                <img src={trashIcon} alt="" width={13.6} height={14.9333} />
-              </button>
-            )}
-          </li>
+          <ContextItemRow
+            key={item.id}
+            item={item}
+            itemWeight={itemWeight}
+            confirming={confirmId === item.id}
+            onConfirm={() => setConfirmId(item.id)}
+            onCancelConfirm={() => setConfirmId(null)}
+            onDelete={() => { setConfirmId(null); onDelete(item) }}
+            onEdit={text => onEdit(item, text)}
+          />
         ))}
       </ul>
 
@@ -227,5 +228,119 @@ function ContextCard({ scope, items, onAdd, onDelete }) {
         </div>
       </form>
     </section>
+  )
+}
+
+function ContextItemRow({ item, itemWeight, confirming, onConfirm, onCancelConfirm, onDelete, onEdit }) {
+  const { t } = useTranslation()
+  const [editing, setEditing] = useState(false)
+  const [draft,   setDraft]   = useState(item.text)
+  const [error,   setError]   = useState(null)
+  const [saving,  setSaving]  = useState(false)
+  const blocked = !!item.blocked_category
+  const inputId = `context-edit-${item.id}`
+  const errorId = `${inputId}-error`
+
+  const save = async (e) => {
+    e.preventDefault()
+    const clean = draft.trim()
+    if (!clean) { setError(t('portal.context.errors.empty')); return }
+    if (clean.length > MAX_CHARS) { setError(t('portal.context.errors.tooLong', { max: MAX_CHARS })); return }
+    setSaving(true)
+    const result = await onEdit(clean)
+    setSaving(false)
+    if (result === 'ok') { setEditing(false); setError(null) }
+    else if (result === 'unsafe') setError(t('portal.safety.unsafe'))
+  }
+
+  if (editing) {
+    return (
+      <li>
+        <form onSubmit={save} noValidate className="flex flex-col gap-[6px] py-[4px]">
+          <label htmlFor={inputId} className="sr-only">{t('portal.safety.editItem', { text: item.text })}</label>
+          <input
+            id={inputId}
+            value={draft}
+            onChange={e => { setDraft(e.target.value); setError(null) }}
+            aria-invalid={!!error}
+            aria-describedby={errorId}
+            autoFocus
+            className="text-body-regular h-[44px] w-full rounded-[100px] bg-white px-[18px] text-[15px] text-black outline-none focus-visible:ring-2 focus-visible:ring-[#54aed3]"
+          />
+          <p id={errorId} aria-live="polite" className="text-body-medium px-[6px] text-[12px] text-[#ffb4b4]">{error}</p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => { setEditing(false); setDraft(item.text); setError(null) }}
+              className="text-body-medium min-h-[44px] rounded-full px-3 text-[13px] text-intacta-text"
+            >
+              {t('portal.safety.cancel')}
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="text-title-semibold min-h-[44px] rounded-full bg-white px-4 text-[13px] text-[#043961] disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : t('portal.safety.save')}
+            </button>
+          </div>
+        </form>
+      </li>
+    )
+  }
+
+  return (
+    <li className="flex items-start gap-2">
+      <div className="min-w-0 flex-1 py-[6px]">
+        <p className={`${itemWeight} whitespace-pre-line break-words leading-normal ${item.pending ? 'opacity-60' : ''}`}>
+          {item.text}
+        </p>
+        {blocked && (
+          <p className="mt-[4px] flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
+            <span className="text-title-semibold rounded-full bg-[#dc2626] px-2 py-[2px] text-white">{t('portal.safety.blocked')}</span>
+            <span className="text-body-medium text-[#ffb4b4]">{t('portal.safety.blockedHint')}</span>
+          </p>
+        )}
+      </div>
+      {confirming ? (
+        <span className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={onDelete}
+            className="text-title-semibold min-h-[32px] rounded-full bg-[#dc2626] px-3 text-[12px] text-white"
+          >
+            {t('portal.context.delete')}
+          </button>
+          <button
+            type="button"
+            onClick={onCancelConfirm}
+            className="text-body-medium min-h-[32px] rounded-full px-2 text-[12px] text-intacta-text"
+          >
+            {t('portal.common.cancel')}
+          </button>
+        </span>
+      ) : (
+        <span className="flex shrink-0 items-center">
+          <button
+            type="button"
+            disabled={item.pending}
+            onClick={() => { setDraft(item.text); setEditing(true) }}
+            aria-label={t('portal.safety.editItem', { text: item.text })}
+            className="flex h-[32px] w-[32px] items-center justify-center rounded-full disabled:opacity-40"
+          >
+            <img src={penIcon} alt="" width={14.9333} height={14.9333} />
+          </button>
+          <button
+            type="button"
+            disabled={item.pending}
+            onClick={onConfirm}
+            aria-label={t('portal.context.deleteItem', { text: item.text })}
+            className="flex h-[32px] w-[32px] items-center justify-center rounded-full disabled:opacity-40"
+          >
+            <img src={trashIcon} alt="" width={13.6} height={14.9333} />
+          </button>
+        </span>
+      )}
+    </li>
   )
 }

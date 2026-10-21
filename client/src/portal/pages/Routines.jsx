@@ -7,7 +7,9 @@
  *   Row:   time pill 106×32 #466781 r10 (Light 16) · title Light 14 · switch 46×26 · pen · trash
  *          days "S M T W T F S" below (Inter 14, selected Bold)
  *
- * Data: GET/POST/PUT/DELETE /api/routines, optimistic with rollback. Home's Schedule reads the same endpoint.
+ * Data: GET/POST/PUT/DELETE /api/routines; toggles optimistic with rollback, the form waits for the server.
+ * Home's Schedule reads the same endpoint. Safety: an unsafe title/script is refused (422 unsafe_content) and shown in
+ * the form; a stored routine that fails the re-check has blocked_category → red "Blocked for safety" label, never fired.
  */
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -33,7 +35,6 @@ const GROUPS    = [
   { key: 'afternoon', from: 12 * 60, to: 18 * 60 },
   { key: 'evening',   from: 18 * 60, to: 24 * 60 },
 ]
-let tempSeq = 0
 
 const daysOf   = (r) => (Array.isArray(r.days) && r.days.length ? r.days.map(Number) : ALL_DAYS)
 const byTime   = (a, b) => timeToMinutes(a.trigger_time) - timeToMinutes(b.trigger_time)
@@ -92,28 +93,29 @@ export default function Routines() {
     update(routine, { days: next })
   }
 
+  /* Add / edit from the form: waits for the server so a safety refusal can be shown inside the form.
+     Returns 'ok' | 'unsafe' | 'error'. */
   const save = async (values) => {
-    if (editing === 'new') {
-      const temp = { id: `tmp-${++tempSeq}`, ...values, trigger_time: `${values.trigger_time}:00`, is_active: true, pending: true }
-      setRoutines(list => [...list, temp])
-      setEditing(null)
-      try {
+    try {
+      if (editing === 'new') {
         const { routine } = await portalFetch('/api/routines', {
           method: 'POST',
           body: JSON.stringify({ patientId: sessionPatientId(getSession()), ...values, is_active: true }),
         })
-        replace(temp.id, routine)
-      } catch (err) {
-        if (err.code === 'unauthorized') return
-        console.error('routine create failed:', err.message)
-        setRoutines(list => list.filter(r => r.id !== temp.id))
-        showToast(t('portal.routines.createFailed'))
+        setRoutines(list => [...list, routine])
+      } else {
+        const { routine } = await portalFetch(`/api/routines/${editing.id}`, { method: 'PUT', body: JSON.stringify(values) })
+        replace(editing.id, routine)
       }
-      return
+      setEditing(null)
+      return 'ok'
+    } catch (err) {
+      if (err.code === 'unauthorized') return 'error'
+      if (err.code === 'unsafe_content') return 'unsafe'
+      console.error('routine save failed:', err.message)
+      showToast(t(editing === 'new' ? 'portal.routines.createFailed' : 'portal.routines.saveFailed'))
+      return 'error'
     }
-    const routine = editing
-    setEditing(null)
-    await update(routine, values)
   }
 
   const remove = async (routine) => {
@@ -260,6 +262,9 @@ function RoutineRow({ routine, onToggle, onToggleDay, onEdit, onDelete }) {
           {formatClock(timeToMinutes(routine.trigger_time), t)}
         </span>
         <span className={`text-body-light min-w-0 flex-1 truncate text-[14px] tracking-[0.1px] ${off ? 'opacity-60' : ''}`}>{title}</span>
+        {routine.blocked_category && (
+          <span className="text-title-semibold shrink-0 rounded-full bg-[#dc2626] px-2 py-[2px] text-[11px] text-white">{t('portal.safety.blocked')}</span>
+        )}
         <Switch size="sm" checked={!off} disabled={routine.pending} onChange={onToggle} label={t('portal.routines.toggle', { title })} />
         <button type="button" onClick={onEdit} disabled={routine.pending} aria-label={t('portal.routines.edit', { title })}
           className="flex h-[44px] w-[30px] shrink-0 items-center justify-center disabled:opacity-40">

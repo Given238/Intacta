@@ -132,7 +132,7 @@ describe('CRUD /api/context-items', () => {
     routeQueries([owns(1), [/FROM context_items WHERE/, [{ id: 2, scope: 'permanent', text: 'Depe' }]]]);
     const res = makeRes();
     await contextItems.listContextItems({ caregiverId: 1, validQuery: { patientId: 5, scope: 'permanent' } }, res);
-    expect(res.json).toHaveBeenCalledWith({ items: [{ id: 2, scope: 'permanent', text: 'Depe' }] });
+    expect(res.json).toHaveBeenCalledWith({ items: [{ id: 2, scope: 'permanent', text: 'Depe', blocked_category: null }] });
     const call = mockQuery.mock.calls.find(c => /context_items/.test(c[0]));
     expect(call[0]).toMatch(/scope = \$2/);
     expect(call[1]).toEqual([5, 'permanent']);
@@ -486,8 +486,8 @@ describe('LLM prompt and word cap', () => {
     });
     const text = await prompt.format({});
     expect(text).toMatch(/Maximum 15 words/);
-    expect(text).toMatch(/Today's context:\n- Neighbour dropping off fresh soup around 1:00 P\.M\./);
-    expect(text).toMatch(/Permanent context:\n- Depe \(Therapy Dog - needs yard walk 2x\/day\)/);
+    expect(text).toMatch(/Today's context:\n<<<NOTES\n- Neighbour dropping off fresh soup around 1:00 P\.M\./);
+    expect(text).toMatch(/Permanent context:\n<<<NOTES\n- Depe \(Therapy Dog - needs yard walk 2x\/day\)/);
     expect(text).toMatch(/"validate":/);
     expect(text).toMatch(/\{Timothy\}/);
   });

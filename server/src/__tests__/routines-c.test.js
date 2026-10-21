@@ -137,7 +137,7 @@ describe('runTick', () => {
   it('terminal online: emits routine:trigger, logs source routine (transcript = title, reply = script), claims with the Jakarta date', async () => {
     io = fakeIo([5]);
     const r = await sched.runTick(io, { now: NOW });
-    expect(r).toEqual({ delivered: [11], missed: [12], waiting: [], stale: [] });
+    expect(r).toEqual({ delivered: [11], missed: [12], waiting: [], stale: [], blocked: [] });
     expect(emitted).toContainEqual({ room: 'patient:5', event: 'routine:trigger', data: { id: 11, title: 'Breakfast', audio_script: 'Time for breakfast.', category: 'meal' } });
     expect(logInteraction).toHaveBeenCalledWith({ patientId: 5, transcript: 'Breakfast', aiResponse: { text: 'Time for breakfast.', parts: ['Time for breakfast.'] }, source: 'routine', latencyMs: 0 });
     const claimCall = mockQuery.mock.calls.find(([sql]) => /UPDATE routines/.test(sql));

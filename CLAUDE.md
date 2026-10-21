@@ -45,6 +45,26 @@ ALL patient-facing LLM output:
 - Missing context params → generic comforting phrase, never an error (FR-4.3.5).
 - Any change to prompts or the validator requires the guardrail suite to pass.
 
+## Content Safety (NON-NEGOTIABLE): text that reaches the patient
+- One module: `server/src/services/contentSafety.js` → `checkPatientFacingText(text, {language, kind})` → `{ok, category, reason}`;
+  kind = context | broadcast | routine | voice_test | reply. Max 300 chars.
+- Tier 1: whole-word rules (ID + EN) on normalised text (lowercase, accents/punctuation stripped, leetspeak `b0m`, stretched letters).
+  Instruction-type rules are skipped after a negation (`jangan`, `don't`…) so calm reminders pass ("Jangan sentuh kompor ya").
+  Death/accident facts block only spoken kinds (a context note may hold them as background); hospital/illness/death block AI replies.
+- Tier 2: Gemini classifier `{safe, category, confidence}` (blocks at confidence ≥0.7), 2.5 s timeout, `GEMINI_SAFETY_MODEL` else `GEMINI_MODEL`.
+  If it fails or times out, Tier 1 alone decides and `[safety]` is warned. Never runs under NODE_ENV=test.
+- Categories: threat_violence, fear_inducing, self_harm, abuse_insult, sexual, deception_harm, unsafe_instruction, other.
+- Enforced BEFORE saving/emitting (Tier 1 + 2): POST/PUT context-items, routines create/update (title, audio_script, display_text),
+  `broadcast:message`, `voice:test`. Refusal: REST 422 `{error, code:'unsafe_content', category}`; socket ack
+  `{success:false, code:'unsafe_content', category}`. Audit `content.blocked` with `{kind, category}` only, never the text.
+  Broadcasts: 10/min per caregiver (ack `code:'rate_limited'`).
+- Stored rows are re-checked (Tier 1) when the LLM context / terminal snapshot is built, when the portal lists them and on every
+  scheduler tick; failures get `blocked_category` (migration 007), are never sent or spoken, and show "Blocked for safety" in the portal
+  (still editable/deletable).
+- Every AI reply is Tier-1 checked; a failure goes down the fallback path. Prompts wrap the patient's words and the notes in
+  `<<<PATIENT … PATIENT>>>` / `<<<NOTES … NOTES>>>` as DATA, never instructions; the AI never states deaths, threats, illness or hospital.
+- Portal shows the refusal inline ("could frighten or upset the patient… e.g. 'Timothy akan pulang jam 5.'"), never the rule list.
+
 ## Code Conventions
 - Controllers atomic and thin; logic lives in /services.
 - Explicit try/catch + typed error responses on every DB transaction and LLM call. Never swallow errors.
@@ -74,7 +94,7 @@ Known limitation (state it in the pitch): code-only caregiver auth is a hackatho
 - server → terminal: `response:ready` {text, parts[], audio_url?}
 - server → portal: `interaction:new` {transcript, ai_response, source, created_at}
 - server → terminal: `routine:trigger` {id, title, audio_script, category} (scheduler, Asia/Jakarta clock; terminal queues it behind a reply)
-- caregiver → server: `broadcast:message` {patientId, text ≤200} → terminal `broadcast:message` {text, created_at}
+- caregiver → server: `broadcast:message` {patientId, text ≤200, safety-checked, 10/min} → terminal `broadcast:message` {text, created_at}
   (+ `interaction:new` source=broadcast; logged + audited; ack {success})
 - caregiver → server: `voice:test` {patientId} → terminal `voice:test` {text, language, voice_gender, playback_speed, volume_db}; ack {success}
 - server → terminal: `device:paired` {patient_id, language}
@@ -150,9 +170,9 @@ Always: get_design_context + get_screenshot for the node before building. Clip e
 ## Database Schema Keys
 - `caregivers` (email + password_hash nullable since migration 004: code-paired caregivers have no login), `patients` (language: id|en; linked to caregiver)
 - `devices`: id, device_uid, name (e.g. "Tablet - Ruang Tamu"), patient_id, token_hash, pairing_code (SHA-256), code_expires_at, code_used_at, last_seen_at, battery, is_online
-- `context_items`: id, patient_id, scope (daily|permanent), text (≤200), context_date (NULL for permanent), created_at
+- `context_items`: id, patient_id, scope (daily|permanent), text (≤200), context_date (NULL for permanent), created_at, blocked_category
   (`daily_contexts` is legacy: migration 003 copies today's rows over; no code reads it)
-- `routines`: id, patient_id, title, days (SMALLINT[] 0=Sun..6=Sat), trigger_time (TIME), category (ENUM meal|medication|hygiene|other), audio_script, display_text, is_active
+- `routines`: id, patient_id, title, days (SMALLINT[] 0=Sun..6=Sat), trigger_time (TIME), category (ENUM meal|medication|hygiene|other), audio_script (≤300), display_text, is_active, last_fired_on, blocked_category
 - `patient_settings`: patient_id (PK), strict_validation, max_speech_seconds, voice_id, playback_speed, volume_db, updated_at
 - `interaction_logs`: id, patient_id, transcript, ai_response, source (voice|typed|routine|broadcast), latency_ms, created_at
 - `audit_logs`: id, caregiver_id, action, payload (JSONB), created_at (ISO-8601)
