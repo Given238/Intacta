@@ -749,7 +749,22 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
 **B5 tests**: guardrail suite updated (new categories, phrase patterns incl. "tidak salah kok merasa begitu"),
 `llm/__tests__/fallbackLibrary.test.js`, `llm/__tests__/ladder.test.js` (mocked model), `llm/__tests__/replies.live.test.js`
 and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the API was too slow this session).
-**After numbers**: PENDING (benchmarks with the new code were still running at commit time; filled in below when done).
+**Before / after (real model, 80 calls each, same 40 utterances × 2 contexts; `npm run llm:bench`)**
+
+| Run | Budget | Fallback rate | Top reasons | First-attempt rejections | p50 / p95 |
+|---|---|---|---|---|---|
+| Before, configured | 4000 ms | 98.8% (79/80) | timeout 79 | n/a (all timed out) | 4008 / 4015 ms |
+| After, configured | 4000 + 2000 ms retry | 100% (80/80) | timeout 80 | n/a (all timed out) | 6019 / 6030 ms |
+| Before, diagnostic | 60 s | 53.7% (43/80) | timeout 37, validation:word_cap 5, validation:question 1 | word_cap 22, question 5 (27/80) | 53.1 / 60.0 s |
+| After, diagnostic | 60 s + 2 s retry | **31.3% (25/80)** | timeout 25 (no validation or safety fallbacks) | word_cap 4 (4/80) | 15.3 / 62.0 s |
+
+- The configured-budget runs only measure this machine's network to Gemini during the session (raw "Say OK." calls took
+  2–60 s, ~5 s at best at the end); the **<10% target is NOT demonstrated** here. The 60 s runs remove most of that noise:
+  code-level fallbacks (validation) went from 6 to 0 and first-attempt rejections from 34% to 5%; every remaining fallback is a timeout.
+- Reading the 55 model replies of the "after" run: situation-specific redirects (pain → tell the caregiver, fear → slow breaths,
+  restless → window, missing someone → their song), no tea outside hunger/thirst. Problems found and fixed in `da34c8c`:
+  notes used as "reassure" for unrelated topics, 2 invented facts ("water is ready on the table", "the soup is already here"),
+  lowercase fragments. A final benchmark after that fix was started but exited with an error (not investigated; usage limit); re-run `npm run llm:bench -- --timeout 60000`.
 
 ### Part C: type scale + responsive layouts (DONE, committed locally)
 **C1 type system**
@@ -784,6 +799,14 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 - The compact terminal Menu and the portal sidebar rail are not in Figma (built from the header tokens).
 - `/terminal/pairing`, dialogs and the keyboard-open state are not covered by the screenshot script (checked by hand in code only).
 - Terminal contrast is still below 7:1 on the bright part of the gradient (unchanged, see the 2026-10-12 notes).
+
+### Session summary (2026-10-21, branch `phase-7-safety-replies-layout`, local commits only, not pushed)
+- Commits: `6585b39` A content safety · `119fb3a` B replies + fallback ladder · `a9feb69` C type scale + responsive · `da34c8c` B reply-quality follow-up.
+- New migration: `007_content_safety.sql` (`blocked_category` on context_items + routines; applied to the dev DB).
+- New env: `GEMINI_SAFETY_MODEL`, `RUN_LIVE_LLM_TESTS` (in `server/.env.example`); `LLM_TIMEOUT_MS` default now 2500.
+- Tests: server 430 passed / 16 live-skipped; client 51 passed. A6: 8/8 blocked, 7/7 allowed.
+- Decisions needed: FR-4.3.2 (1.2 s vs 2.5 s + 2 s ladder); terminal font ≥32pt vs fluid 24px on phones; routine script max 1000→300.
+- Not done / open: <10% fallback target not demonstrated (network); live suites (`RUN_LIVE_LLM_TESTS=1`) were started at the end, result not recorded; final post-fix benchmark failed to run; dev routine 10 is a test row now blocked.
 
 ## Session summary: voice + routines (2026-10-12)
 - **Done**: A (ElevenLabs `/api/tts`, voices by gender, Tap-to-start, shared audio element + analyser, browser speech
@@ -856,7 +879,7 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 ---
 
 ## NEXT
-- IN PROGRESS (2026-10-21): Part B follow-up (reply quality found in the "after" benchmark), then the final summary.
+- Re-run `npm run llm:bench -- --timeout 60000` and `RUN_LIVE_LLM_TESTS=1 npm test` on a normal network; record results.
 - Decide FR-4.3.2: keep the 2500 ms + 2 s ladder or restore 1.2 s (see Part B).
 - Re-run the live Tier 2 safety check once the Gemini API is reachable at normal speed (see Part A).
 - Tablet test of Parts A–C (lists under "Voice and routines"); restart `npm run dev` first so `/vad/` assets are served.
