@@ -52,7 +52,7 @@ liveDescribe('live replies are situation-specific', () => {
       results.push({ ...u, out });
       console.log(`[live ${u.lang} ${u.situation}] ${out._fallback ? `FALLBACK(${out._reason})` : out._stage} :: ${out.text}`);
     }
-  }, 40 * 20000);
+  }, 40 * ((Number(process.env.LLM_TIMEOUT_MS) || 2500) + 10000));
 
   test('fallback rate under 10%', () => {
     const rate = results.filter(r => r.out._fallback).length / results.length;

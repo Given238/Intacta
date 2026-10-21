@@ -22,6 +22,8 @@ const { buildPrompt } = require('../prompts');
 const { runChain } = require('../chain');
 
 const RUNS = 3;
+// Worst case per call: the first attempt (LLM_TIMEOUT_MS) + the 2 s short retry, plus slack
+const CALL_TIMEOUT_MS = (Number(process.env.LLM_TIMEOUT_MS) || 2500) + 10000;
 
 // Invented whereabouts, times, activities, relationships, or titles for the patient
 const COMMON_FORBIDDEN = [
@@ -116,7 +118,7 @@ liveDescribe('live model — no context: no invented whereabouts, times or activ
         console.log(`[no-context ${language} #${run}] fallback=${result._fallback} :: ${result.text}`);
         expect(result._fallback).toBe(false);
         expect(violations(result.text, NO_CONTEXT_FORBIDDEN)).toEqual([]);
-      }, 30000);
+      }, CALL_TIMEOUT_MS);
     }
   }
 });
@@ -132,7 +134,7 @@ liveDescribe('live model — with context: only the context facts', () => {
         expect(result._fallback).toBe(false);
         expect(violations(result.text, COMMON_FORBIDDEN)).toEqual([]);
         expect(inventedTimes(result.text)).toEqual([]);
-      }, 30000);
+      }, CALL_TIMEOUT_MS);
     }
   }
 });

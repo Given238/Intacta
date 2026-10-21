@@ -24,6 +24,14 @@ const NON_RETRYABLE = new Set([400, 401, 403, 404]);
 // Food or drink words; allowed in "redirect" only when food_ok (hunger/thirst or a meal routine within 60 min)
 const FOOD_WORDS = /(?:^|[^a-z])(teh|kopi|susu|camilan|kudapan|kue|roti|biskuit|buah|makan\w*|minum\w*|sup|air putih|segelas|secangkir|tea|coffee|milk|snack\w*|cookies?|biscuits?|cake|bread|fruit|soup|sandwich\w*|eat\w*|food|meal|lunch|dinner|breakfast|drink\w*|sip|water|juice|cup of)(?=$|[^a-z])/i;
 
+/** One spoken sentence: trimmed, first letter capitalised, ends with . or ! (the model sometimes returns fragments). */
+function tidySentence(text) {
+  let s = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!s) return s;
+  s = s.charAt(0).toLocaleUpperCase() + s.slice(1);
+  return /[.!]$/.test(s) ? s : `${s.replace(/[,;:]+$/, '')}.`;
+}
+
 const isAbort = (err) => err?.name === 'AbortError' || /abort/i.test(err?.message ?? '');
 
 function statusOf(err) {
@@ -175,7 +183,7 @@ async function callLLM(prompt, language, maxWords, signal, { foodOk = true } = {
     throw rejection('validation:food_offer', 'redirect offers food or drink without hunger, thirst or a meal routine', 'food_offer');
   }
 
-  const parts = [parsed.validate, parsed.reassure, parsed.redirect].map(s => s.trim()).filter(Boolean);
+  const parts = [parsed.validate, parsed.reassure, parsed.redirect].map(tidySentence).filter(Boolean);
   const text = parts.join(' ');
 
   // Content safety on the way out (A4): threats, distressing facts (death, illness, hospital) → fallback path
@@ -185,4 +193,4 @@ async function callLLM(prompt, language, maxWords, signal, { foodOk = true } = {
   return { text, parts, _fallback: false, _theme: null, _reason: null };
 }
 
-module.exports = { runChain, callLLM, foodAllowed, reasonOf, TIMEOUT_MS, RETRY_TIMEOUT_MS, FOOD_WORDS };
+module.exports = { runChain, callLLM, foodAllowed, reasonOf, tidySentence, TIMEOUT_MS, RETRY_TIMEOUT_MS, FOOD_WORDS };

@@ -150,6 +150,27 @@ describe('prompt inputs', () => {
   });
 });
 
+describe('reply quality (from the 2026-10-21 live benchmark)', () => {
+  it('fragments are tidied into sentences: capital letter, final full stop', async () => {
+    scriptModel({ validate: 'kakimu terasa sakit', reassure: 'aku ada di dekatmu,', redirect: 'mari beri tahu caregiver' });
+    const out = await runChain({ transcript: 'Kakiku sakit', language: 'id' });
+    expect(out.text).toBe('Kakimu terasa sakit. Aku ada di dekatmu. Mari beri tahu caregiver.');
+  });
+
+  it('tidySentence keeps a final ! and existing punctuation', () => {
+    const { tidySentence } = require('../chain');
+    expect(tidySentence('  hello there! ')).toBe('Hello there!');
+    expect(tidySentence('Done.')).toBe('Done.');
+  });
+
+  it.each(['en', 'id'])('%s prompt: a note is used only when it is about their topic, nothing claimed as ready or here', (language) => {
+    const { buildPrompt } = require('../prompts');
+    const p = buildPrompt({ transcript: 'x', daily_items: [], permanent_items: [], language }).template;
+    expect(p).toMatch(language === 'en' ? /use a note ONLY when it is about their topic/ : /pakai catatan HANYA jika catatan itu tentang topiknya/);
+    expect(p).toMatch(language === 'en' ? /Never claim that something is ready, nearby or happening now/ : /Jangan mengklaim sesuatu sudah siap/);
+  });
+});
+
 describe('observability', () => {
   it('records every result; summary gives the fallback rate and top reasons', async () => {
     scriptModel(GOOD_EN);
