@@ -145,13 +145,37 @@ in memory); the server also logs the hourly fallback rate. Fallback replies show
 ## Figma (source of truth) — file key mIwuaN6ddcgRRLwa9TyMTp
 Always: get_design_context + get_screenshot for the node before building. Clip every header to its frame width
 (the header rectangle in iPhone frames is 1194 wide by mistake). Export logos as SVG with download_assets; never substitute icons.
-- Terminal: 1:2 (home), 62:123 (code popup). Logo group 31:4. 1194x834 landscape, scale with vw/vh.
-- Portal (iPhone 17, 402x874, build at 390-402px): Auth 62:171 | Home 29:42 | Routines 60:30 | Context 60:60 |
+- Terminal: 1:2 (home), 62:123 (code popup). Logo group 31:4. Figma is 1194x834 landscape: a reference, the build is fluid.
+- Portal (iPhone 17, 402x874; Figma sizes are a reference, legibility wins): Auth 62:171 | Home 29:42 | Routines 60:30 | Context 60:60 |
   Patient 60:120 | Settings 60:90
-- Navigation: BOTTOM TAB BAR (Home, Patient, Routines, Context, Settings), not designed in Figma: build it from the header tokens.
-  Fixed to the bottom, ~64px + safe-area-inset-bottom, active tab highlighted, Lucide icons + labels. The Menu drawer frame 29:94 is NOT used.
-  Scroll areas need bottom padding for the bar. Hide the bar or keep inputs visible when the keyboard is open (Context inputs, Speak Now).
-- Build ONE screen per session; commit after each; update PROGRESS.md.
+- Navigation (not in Figma, built from the header tokens; the Menu drawer frame 29:94 is NOT used): same 5 destinations
+  (Home, Patient, Routines, Context, Settings), Lucide icons + labels, active item highlighted.
+  <1024px: BOTTOM TAB BAR fixed to the bottom, 64px + safe-area-inset-bottom (`.portal-main` pads for it; hidden while the keyboard is open,
+  the focused input scrolls into view). ≥1024px: left SIDEBAR RAIL (`SideRail` in TabBar.jsx) instead.
+
+## Type scale (C1) — defined once, used everywhere
+- Tokens in `client/src/index.css` (@theme) + `client/src/portal/components/Type.jsx` (Heading / Text / Label / Caption).
+  Portal utilities (size + line-height + weight in one): `text-title` 22-26/700/1.2 · `text-card` 16-18/600/1.3 ·
+  `text-body` 15-16/400/1.5 · `text-secondary` 13-14/400/1.45 · `text-caption` 12/500/1.35. No ad-hoc `text-[13px]`, no 300/800 in the portal.
+- Inter for UI/body; Baloo Da 2 ONLY for the "Intacta" wordmark and the terminal header buttons. Times/numbers: `tabular-nums`.
+- Secondary text: `text-muted` (white 80%) on the dark cards/panels (≥6.4:1); directly on the page background (#427aa1) only full white
+  (4.6:1). `client/src/lib/__tests__/portalContrast.test.js` keeps every token ≥4.5:1. Max 3 text sizes per card.
+- Spacing 4/8/12/16/24 (Tailwind 1/2/3/4/6); radius `rounded-card` (16px) for cards, `rounded-control` (10px) for controls.
+- Terminal: Inter ExtraBold greeting/reply, fluid `clamp(24px, 16.6px + 2.05vw, 56px)` (24 phones, ~34 portrait tablet,
+  ~41 at 1194, 56 at 1920), line-height 1.25, soft text-shadow; it shrinks (to 16px) until it fits its slot before it ever scrolls.
+
+## Responsive rules (C2)
+- Terminal (`client/src/terminal.css`, `TerminalStage` + `TerminalBody`): no fixed stage. 100dvh, safe-area insets, mesh full-bleed.
+  Landscape ≥900px: Figma header (logo, wordmark, tagline, the two Baloo buttons, code card under "Authentication code").
+  Portrait or <900px: compact header (logo + wordmark + one Menu popover with both actions). The 11 bars are a grid locked to
+  the Figma block (1068×210, square corners, one baseline, heights proportional) and scale with the width. The dev typed input
+  is in the flow under the header, so nothing overlaps it.
+- Portal: mobile-first. Content container max 1100px; ≥768px: Home cards + schedule, Context lists side by side, Patient status | log,
+  Settings sections in 2 columns; Routines centered at max 720px. ≥1024px: sidebar rail. Dialogs: bottom sheet <640px,
+  centered ≥640px. Pair screen: centered card. Touch targets ≥44px (exception: day toggles 32×44 on phones), no horizontal scroll.
+- Check: `npm run check:layout` in `client/` (needs `npm i --no-save playwright-core`, a dev server and PORTAL_TOKEN/PATIENT_ID):
+  9 viewports (360x740 … 1920x1080), screenshots + `document.scrollWidth <= innerWidth`.
+- Build ONE screen per session; commit after each; update PROGRESS.md. Every screen uses the type scale and responsive rules below.
 
 ## Context model (follows Figma, replaces visitor_name/arrival_time/passive_cue)
 - context_items(id, patient_id, scope 'daily'|'permanent', text <=200 chars, context_date NULL for permanent, created_at)
@@ -204,7 +228,8 @@ Always: get_design_context + get_screenshot for the node before building. Clip e
 - LLM response ≤1.2s or fallback (FR-4.3.2; see the pending note under Clinical Guardrails); fallback rate <10%; 100% guardrail compliance
 - STT ≤800ms after utterance end (FR-4.2.2); TTS first byte ≤500ms (FR-4.4.1)
 - Mic never captures during SPEAKING or the 3.0s COOLDOWN
-- Terminal contrast ≥7:1, font ≥32pt; returns to clock mode 60s after audio ends
+- Terminal contrast ≥7:1, font ≥32pt (NOTE 2026-10-21: the fluid reply font is 24px on phones / ~34px on a portrait tablet, by request;
+  ≥40px at 1194 wide. Decision pending); returns to clock mode 60s after audio ends
 
 ## Progress Log Rule (handoff)
 - Keep /PROGRESS.md up to date: current phase, what is DONE, what is IN PROGRESS (file paths), what is NEXT, known bugs.

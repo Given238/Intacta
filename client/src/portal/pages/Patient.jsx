@@ -1,11 +1,9 @@
 /**
  * Patient — live status, speak-to-tablet and interaction log (Figma 60:120, iPhone 17 402×874).
  *
- *   Status card: 227×204, centered, 20px below the header, #043961, radius 10
- *     "Patient Status" Inter Regular 14 · name Inter SemiBold 16 · dot (Figma 60:540) + "Online" SemiBold 12
- *     1px #d9d9d9 rule · battery ring (~100px) with "NN%" SemiBold 26
- *   Speak bar:   35px #043961 circle (Figma 60:4796) = mic button · white 36px field radius 10, Inter Light 15 #7a7e80
- *   Logs card:   see InteractionLog.jsx
+ *   Status card (name, online dot Figma 60:540, battery ring), speak bar (Figma 60:4796 circle = mic, white field),
+ *   logs card (InteractionLog.jsx). From 768px: status + speak bar on the left, logs on the right.
+ *   Figma sizes are a reference; text uses the portal type scale.
  *
  * Data: GET /api/patient/status + live device:status; broadcast:message over the caregiver socket.
  */
@@ -24,7 +22,7 @@ import { Loading, LoadError } from '../components/LoadState'
 import InteractionLog from './InteractionLog'
 
 const BROADCAST_MAX = 200
-const PANEL = 'rounded-[10px] bg-[#043961] text-white'
+const PANEL = 'rounded-card bg-surface text-white'
 
 async function loadStatus() {
   const pid = encodeURIComponent(getSession()?.patient_id)
@@ -33,6 +31,7 @@ async function loadStatus() {
 }
 
 export default function Patient() {
+  const { t } = useTranslation()
   const { data: status, setData: setStatus, loading, error, retry } = usePortalLoad(loadStatus)
   const { socket } = usePortalSocket()
   const [toast, setToast] = useState(null)
@@ -56,21 +55,27 @@ export default function Patient() {
   }
 
   return (
-    <div className="px-[16px] pt-[20px] pb-2 text-white">
+    <div className="text-white">
       <PortalToast message={toast} />
-      {loading && !status && <Loading />}
-      {error && !loading && <LoadError onRetry={retry} />}
-      {status && !error && (
-        <>
-          <StatusCard status={status} />
-          <SpeakBar
-            socket={socket}
-            language={status.language}
-            onError={showToast}
-          />
-        </>
-      )}
-      <InteractionLog socket={socket} />
+      <h1 className="text-title mb-4">{t('portal.tabs.patient')}</h1>
+      {/* Phones: stacked. From 768px: status + speak on the left, the log on the right */}
+      <div className="grid gap-6 md:grid-cols-[minmax(0,340px)_minmax(0,1fr)] md:items-start">
+        <div>
+          {loading && !status && <Loading />}
+          {error && !loading && <LoadError onRetry={retry} />}
+          {status && !error && (
+            <>
+              <StatusCard status={status} />
+              <SpeakBar
+                socket={socket}
+                language={status.language}
+                onError={showToast}
+              />
+            </>
+          )}
+        </div>
+        <InteractionLog socket={socket} />
+      </div>
     </div>
   )
 }
@@ -82,26 +87,26 @@ function StatusCard({ status }) {
   const battery = Number.isInteger(device?.battery) ? device.battery : null
 
   return (
-    <section className={`${PANEL} mx-auto w-[227px] px-[19px] pt-[11px] pb-[16px]`} aria-label={t('portal.patient.statusTitle')}>
-      <p className="text-body-regular text-[14px] leading-[1.4]">{t('portal.patient.statusTitle')}</p>
-      <div className="mt-[7px] flex items-center gap-[8px]">
-        <span className="text-title-semibold min-w-0 truncate text-[16px] leading-[1.4]">
+    <section className={`${PANEL} mx-auto w-full max-w-[340px] p-4`} aria-label={t('portal.patient.statusTitle')}>
+      <p className="text-secondary text-muted">{t('portal.patient.statusTitle')}</p>
+      <div className="mt-2 flex items-center gap-2">
+        <span className="text-card min-w-0 truncate">
           {status.patient_name || t('portal.home.fallbackPatient')}
         </span>
-        <span className="flex shrink-0 items-center gap-[4px]" role="status">
+        <span className="flex shrink-0 items-center gap-1" role="status">
           {online
             ? <img src={onlineDot} alt="" width={12} height={12} />
             : <span className="block h-[12px] w-[12px] rounded-full bg-[#9aa5ab]" aria-hidden="true" />}
-          <span className="text-title-semibold text-[12px] leading-[1.4]">
+          <span className="text-caption">
             {online ? t('portal.patient.online') : t('portal.patient.offline')}
           </span>
         </span>
       </div>
-      <div className="mt-[11px] h-px bg-[#d9d9d9]" />
+      <div className="mt-3 h-px bg-[#d9d9d9]" />
       {device ? (
         <BatteryRing percent={battery} />
       ) : (
-        <p className="text-body-light mt-[16px] text-center text-[13px] text-intacta-text">{t('portal.patient.noDevice')}</p>
+        <p className="text-secondary mt-4 text-center text-muted">{t('portal.patient.noDevice')}</p>
       )}
     </section>
   )
@@ -115,7 +120,7 @@ function BatteryRing({ percent }) {
   const color = value <= 20 ? '#f59e0b' : '#109e34'
   return (
     <div
-      className="relative mx-auto mt-[14px] h-[100px] w-[100px]"
+      className="relative mx-auto mt-4 h-[100px] w-[100px]"
       role="img"
       aria-label={percent == null ? t('portal.patient.batteryUnknown') : t('portal.patient.battery', { percent })}
     >
@@ -129,7 +134,7 @@ function BatteryRing({ percent }) {
           />
         )}
       </svg>
-      <span className="text-title-semibold absolute inset-0 flex items-center justify-center text-[26px] leading-[1.4]">
+      <span className="text-title absolute inset-0 flex items-center justify-center tabular-nums">
         {percent == null ? '–' : `${percent}%`}
       </span>
     </div>
@@ -203,8 +208,8 @@ function SpeakBar({ socket, language, onError }) {
   }
 
   return (
-    <form onSubmit={send} noValidate className="mt-[24px] pl-[15px] pr-[6px]">
-      <div className="flex items-center gap-[17px]">
+    <form onSubmit={send} noValidate className="mt-6">
+      <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={toggleMic}
@@ -218,7 +223,7 @@ function SpeakBar({ socket, language, onError }) {
           <Mic size={16} className="absolute text-white" aria-hidden="true" />
         </button>
         <label htmlFor="speak-now" className="sr-only">{t('portal.patient.speakNow')}</label>
-        <div className="flex h-[36px] min-w-0 flex-1 items-center rounded-[10px] bg-white pl-[16px] pr-[4px]">
+        <div className="flex h-[48px] min-w-0 flex-1 items-center rounded-control bg-white pl-4 pr-1">
           <input
             id="speak-now"
             type="text"
@@ -228,19 +233,19 @@ function SpeakBar({ socket, language, onError }) {
             aria-invalid={unsafe}
             aria-describedby="speak-now-status"
             placeholder={recording ? t('portal.patient.listening') : t('portal.patient.speakNow')}
-            className="text-body-light min-w-0 flex-1 bg-transparent text-[15px] tracking-[0.1px] text-black outline-none placeholder:text-[#7a7e80]"
+            className="text-body min-w-0 flex-1 bg-transparent text-black outline-none placeholder:text-[#5f6366]"
           />
           <button
             type="submit"
             disabled={sending || !text.trim()}
             aria-label={t('portal.patient.send')}
-            className="flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[8px] text-[#043961] disabled:opacity-30"
+            className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-control text-[#043961] disabled:opacity-30"
           >
             {sending ? <Loader2 size={18} className="animate-spin" aria-hidden="true" /> : <SendHorizontal size={18} aria-hidden="true" />}
           </button>
         </div>
       </div>
-      <p id="speak-now-status" aria-live="polite" className={`text-body-medium min-h-[16px] pl-[61px] pt-[2px] text-[12px] ${unsafe ? 'text-[#ffb4b4]' : 'text-intacta-text'}`}>
+      <p id="speak-now-status" aria-live="polite" className={`text-caption min-h-[16px] pt-1 text-white ${unsafe ? 'mt-2 rounded-control bg-[#dc2626] px-3 py-2' : 'pl-[56px]'}`}>
         {unsafe
           ? t('portal.safety.unsafe')
           : sent ? t('portal.patient.sent') : (text.trim().length > 160 ? `${text.trim().length}/${BROADCAST_MAX}` : '')}

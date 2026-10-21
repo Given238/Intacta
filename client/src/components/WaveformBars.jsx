@@ -5,8 +5,9 @@
  *   [63,35] [162,61] [261,150] [360,210] [459,76] [558,125]
  *   [657,170] [756,39] [855,75] [954,48] [1053,25]
  *
- * Bar bottoms sit on y≈521 (three Figma bars end at 520; tops below are the exact Figma values).
- * Rendered in stage coordinates: place directly inside <TerminalStage>, no wrapper.
+ * Fluid: the bars sit on one baseline in a grid locked to the Figma block (1068×210, see .term-wave in
+ * terminal.css); each bar's height is its Figma height as a percentage of the tallest (210), so the whole
+ * block scales with the container width. Place it in <TerminalBody wave>.
  *
  * Not speaking: exact Figma heights, no animation at all.
  * Speaking: each bar's height = 35–100% of its Figma height from a smoothed amplitude
@@ -19,7 +20,7 @@
 import { useEffect, useRef } from 'react'
 import { useAmplitudeSource, usePrefersReducedMotion } from '../hooks/useAmplitudeSource'
 
-const BAR_W = 78
+const MAX_BAR_H = 210 // tallest Figma bar (62:11)
 
 // Figma 62:94, 62:92, 62:7, 62:11, 62:13, 62:15, 62:17, 62:19, 62:21, 62:96, 62:98
 export const BARS = [
@@ -101,28 +102,15 @@ export default function WaveformBars({ speaking = false, audioEl = null }) {
   }, [speaking, sourceRef, reducedRef])
 
   return (
-    <div
-      style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
-      aria-hidden="true"
-      data-speaking={speaking ? 'true' : 'false'}
-    >
+    <div className="term-wave" aria-hidden="true" data-speaking={speaking ? 'true' : 'false'}>
       {BARS.map((bar, i) => (
         <div
           key={i}
           ref={el => { barRefs.current[i] = el }}
           className="waveform-bar"
-          style={{
-            position:        'absolute',
-            left:            bar.x,
-            top:             bar.top,
-            width:           BAR_W,
-            height:          bar.height,
-            transformOrigin: 'bottom center',
-            willChange:      'transform',
-          }}
+          style={{ height: `${(bar.height / MAX_BAR_H) * 100}%` }}
         />
       ))}
-
     </div>
   )
 }

@@ -284,5 +284,7 @@
       "save": "Save",
       "cancel": "Cancel"
     }
-  }
+  },
+  "menu": "Menu",
+  "regenerate": "Get a new code"
 }

@@ -1,6 +1,7 @@
 /**
- * TabBar — bottom navigation for /portal/* (not in Figma; built from the header tokens).
- * 64px + safe-area-inset-bottom, five ≥44px targets, active tab on the header teal.
+ * Portal navigation (not in Figma; built from the header tokens). Same 5 destinations in two forms:
+ *   TabBar    <1024px: fixed bottom bar, 64px + safe-area-inset-bottom, five ≥44px targets; hidden while the keyboard is open
+ *   SideRail  ≥1024px: left sidebar rail, icons + labels, active item highlighted
  */
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
@@ -50,18 +51,43 @@ export default function TabBar() {
   return (
     <nav
       aria-label={t('portal.tabs.label')}
-      className="fixed bottom-0 left-1/2 z-20 w-full max-w-[480px] -translate-x-1/2 bg-intacta-panel shadow-[0_-2px_9px_rgba(6,19,44,0.25)]"
+      className="fixed inset-x-0 bottom-0 z-20 bg-intacta-panel shadow-[0_-2px_9px_rgba(6,19,44,0.25)] lg:hidden"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
-      <ul className="flex items-stretch gap-1 px-2" style={{ height: TAB_BAR_HEIGHT }}>
+      <ul className="mx-auto flex max-w-[640px] items-stretch gap-1 px-2" style={{ height: TAB_BAR_HEIGHT }}>
         {TABS.map(({ to, key, Icon, end }) => (
           <li key={key} className="flex flex-1 py-[6px]">
             <NavLink
               to={to}
               end={end}
               className={({ isActive }) =>
-                `flex min-h-[44px] w-full flex-col items-center justify-center gap-[2px] rounded-[10px] text-title-semibold text-[12px]
-                 ${isActive ? 'bg-intacta-dark text-white' : 'text-intacta-text'}`
+                `text-caption flex min-h-[44px] w-full flex-col items-center justify-center gap-[2px] rounded-control
+                 ${isActive ? 'bg-intacta-dark text-white' : 'text-muted'}`
+              }
+            >
+              <Icon size={22} aria-hidden="true" />
+              {t(`portal.tabs.${key}`)}
+            </NavLink>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
+export function SideRail() {
+  const { t } = useTranslation()
+  return (
+    <nav aria-label={t('portal.tabs.label')} className="hidden w-[208px] shrink-0 bg-intacta-panel py-4 lg:block">
+      <ul className="flex flex-col gap-1 px-3">
+        {TABS.map(({ to, key, Icon, end }) => (
+          <li key={key}>
+            <NavLink
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                `text-body flex min-h-[48px] items-center gap-3 rounded-control px-3 font-semibold
+                 ${isActive ? 'bg-intacta-dark text-white' : 'text-muted hover:bg-white/10'}`
               }
             >
               <Icon size={22} aria-hidden="true" />

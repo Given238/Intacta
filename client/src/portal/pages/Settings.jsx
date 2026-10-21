@@ -1,11 +1,9 @@
 /**
  * Settings — device, clinical rules, audio and account (Figma 60:90, iPhone 17 402×874).
  *
- *   Cards:  341 wide (30px side margins), #043961, radius 25, 18px apart; titles Inter Bold (Figma 10px)
- *   Device: Bluetooth icon (Figma 107:86) · name Inter ExtraBold 18 · dot + "Online - NN%" Light 15 · grey pill button
- *   Rules:  "Strict Validation Protocols" Light 13 + switch · "Max Speech Duration" slider 0–15
- *   Audio:  mic (107:1504) + voice pill with arrow (107:1586) · speed 0.85–1.0x · volume 60–70 dB · "Test Voice" pill
- *   Account: "Caregiver profile", Name / Email, red "Log Out" pill
+ *   Cards: Device (Bluetooth icon Figma 107:86, name, online + battery, "Pair New Tablet"), Rules (strict switch,
+ *   max speech slider 0–15), Audio (mic 107:1504, voice select with arrow 107:1586, speed, volume, Test Voice),
+ *   Account (name / email, Log Out). Two columns from 768px. Figma sizes are a reference; text uses the type scale.
  *
  * Data: GET/PUT /api/settings (PUT → server emits settings:sync to the tablet), GET /api/voices (options only, never voice IDs),
  * GET/PUT /api/caregiver, GET /api/patient/status + live device:status. Saves on release / blur / change.
@@ -29,8 +27,8 @@ import Switch from '../components/Switch'
 import Dialog, { DialogButton } from '../components/Dialog'
 import { Loading, LoadError } from '../components/LoadState'
 
-const CARD = 'rounded-[25px] bg-[#043961] text-white'
-const PILL = 'text-title-bold flex min-h-[32px] items-center justify-center rounded-[15px] px-[14px] text-[13px] text-white disabled:opacity-60'
+const CARD = 'rounded-card bg-surface text-white'
+const PILL = 'text-secondary flex min-h-[44px] items-center justify-center rounded-full px-4 font-semibold text-white disabled:opacity-60'
 
 async function loadSettings() {
   const pid = encodeURIComponent(getSession()?.patient_id)
@@ -109,8 +107,8 @@ export default function Settings() {
 
   const setLocal = (changes) => setData(d => ({ ...d, settings: { ...d.settings, ...changes } }))
 
-  if (loading && !data) return <div className="px-[30px]"><Loading /></div>
-  if (error && !loading) return <div className="px-[30px]"><LoadError onRetry={retry} /></div>
+  if (loading && !data) return <Loading />
+  if (error && !loading) return <LoadError onRetry={retry} />
   if (!data) return null
 
   const { settings, status, voices, caregiver } = data
@@ -129,14 +127,17 @@ export default function Settings() {
   }
 
   return (
-    <div className="flex flex-col gap-[18px] px-[30px] pt-[25px] text-white">
+    <div className="text-white">
       <PortalToast message={toast} />
+      <h1 className="text-title mb-4">{t('portal.tabs.settings')}</h1>
+      {/* Sections in two columns from 768px */}
+      <div className="grid gap-4 md:grid-cols-2 md:items-start md:gap-6">
 
       <DeviceCard status={status} onPairNew={() => navigate('/portal/pair?link=1')} />
 
       <Card title={t('portal.settings.rules.title')} state={saveState.rules}>
-        <div className="flex items-center justify-between gap-3 pl-[17px] pr-[60px]">
-          <label htmlFor="strict-validation" className="text-body-light text-[13px]">{t('portal.settings.rules.strict')}</label>
+        <div className="flex items-center justify-between gap-3">
+          <label htmlFor="strict-validation" className="text-body">{t('portal.settings.rules.strict')}</label>
           <Switch id="strict-validation" checked={settings.strict_validation} onChange={toggleStrict} />
         </div>
         <Slider
@@ -169,7 +170,8 @@ export default function Settings() {
         onLogout={() => setConfirmLogout(true)}
       />
 
-      <p className="text-body-light px-[8px] pb-2 text-center text-[12px] leading-snug text-intacta-text">
+      </div>
+      <p className="text-secondary mt-6 px-2 pb-2 text-center text-white">
         {t('portal.settings.recordingNotice')}
       </p>
 
@@ -186,7 +188,7 @@ export default function Settings() {
             }}>{t('portal.settings.rules.offConfirm')}</DialogButton>
           </>}
         >
-          <p className="text-body-regular text-[15px] leading-snug">{t('portal.settings.rules.offBody')}</p>
+          <p className="text-body">{t('portal.settings.rules.offBody')}</p>
         </Dialog>
       )}
       {confirmLogout && (
@@ -198,7 +200,7 @@ export default function Settings() {
             <DialogButton variant="danger" onClick={logout}>{t('portal.settings.account.logout')}</DialogButton>
           </>}
         >
-          <p className="text-body-regular text-[15px] leading-snug">{t('portal.settings.account.logoutBody')}</p>
+          <p className="text-body">{t('portal.settings.account.logoutBody')}</p>
         </Dialog>
       )}
     </div>
@@ -208,15 +210,15 @@ export default function Settings() {
 function Card({ title, state, children, className = '' }) {
   const { t } = useTranslation()
   return (
-    <section className={`${CARD} pt-[8px] pb-[18px] pl-[16px] pr-[22px] ${className}`}>
-      <div className="flex min-h-[20px] items-center justify-between">
-        <h2 className="text-title-bold text-[12px]">{title}</h2>
-        <span aria-live="polite" className="text-body-medium flex items-center gap-1 text-[11px] text-intacta-text">
+    <section className={`${CARD} p-4 ${className}`}>
+      <div className="flex min-h-[24px] items-center justify-between gap-2">
+        <h2 className="text-card">{title}</h2>
+        <span aria-live="polite" className="text-caption flex items-center gap-1 text-muted">
           {state === 'saving' && <><Loader2 size={12} className="animate-spin" aria-hidden="true" />{t('portal.common.saving')}</>}
           {state === 'saved' && <><Check size={12} aria-hidden="true" />{t('portal.common.saved')}</>}
         </span>
       </div>
-      <div className="mt-[10px] flex flex-col gap-[10px]">{children}</div>
+      <div className="mt-3 flex flex-col gap-4">{children}</div>
     </section>
   )
 }
@@ -229,12 +231,12 @@ function DeviceCard({ status, onPairNew }) {
 
   return (
     <Card title={t('portal.settings.device.title')}>
-      <div className="flex items-start gap-[18px] pl-[0px]">
-        <img src={bluetoothIcon} alt="" width={24.625} height={39.7501} className="mt-[4px] shrink-0" />
+      <div className="flex items-start gap-4">
+        <img src={bluetoothIcon} alt="" width={24.625} height={39.7501} className="mt-1 shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="text-display truncate text-[18px] leading-normal">{device?.name || t('portal.settings.device.none')}</p>
+          <p className="text-body truncate font-semibold">{device?.name || t('portal.settings.device.none')}</p>
           {device && (
-            <p className="text-body-light flex items-center gap-[4px] text-[15px] leading-normal">
+            <p className="text-secondary flex items-center gap-1 tabular-nums text-muted">
               {online
                 ? <img src={onlineDot} alt="" width={10} height={10} />
                 : <span className="block h-[10px] w-[10px] rounded-full bg-[#9aa5ab]" aria-hidden="true" />}
@@ -242,7 +244,7 @@ function DeviceCard({ status, onPairNew }) {
               {battery != null && ` - ${battery}%`}
             </p>
           )}
-          <button type="button" onClick={onPairNew} className={`${PILL} mt-[10px] bg-[#5e6d77]`}>
+          <button type="button" onClick={onPairNew} className={`${PILL} mt-3 bg-[#5e6d77]`}>
             {t('portal.settings.device.pairNew')}
           </button>
         </div>
@@ -262,10 +264,10 @@ function Slider({ id, label, min, max, step, value, display, minLabel, maxLabel,
     onCommit(v, prev)
   }
   return (
-    <div className="pl-[17px]">
-      <div className="flex items-baseline justify-between gap-2 pr-[4px]">
-        <label htmlFor={id} className="text-body-light text-[13px]">{label}</label>
-        <span className="text-title-bold text-[13px]">{display(value)}</span>
+    <div>
+      <div className="flex max-w-[320px] items-baseline justify-between gap-2">
+        <label htmlFor={id} className="text-body">{label}</label>
+        <span className="text-body font-semibold tabular-nums">{display(value)}</span>
       </div>
       <input
         id={id}
@@ -278,11 +280,11 @@ function Slider({ id, label, min, max, step, value, display, minLabel, maxLabel,
         onKeyUp={commit}
         onBlur={commit}
         onTouchEnd={commit}
-        className="portal-range mt-[6px] h-[24px] w-[160px] max-w-full cursor-pointer appearance-none bg-transparent"
+        className="portal-range mt-2 h-[32px] w-full max-w-[320px] cursor-pointer appearance-none bg-transparent"
       />
-      <div className="flex w-[160px] max-w-full justify-between">
-        <span className="text-title-bold text-[13px]">{minLabel}</span>
-        <span className="text-title-bold text-[13px]">{maxLabel}</span>
+      <div className="text-caption flex w-full max-w-[320px] justify-between tabular-nums text-muted">
+        <span>{minLabel}</span>
+        <span>{maxLabel}</span>
       </div>
     </div>
   )
@@ -327,7 +329,7 @@ function AudioCard({ settings, voices, language, socket, online, state, setLocal
 
   return (
     <Card title={t('portal.settings.audio.title')} state={state}>
-      <div className="flex items-center gap-[12px] pl-[4px]">
+      <div className="flex items-center gap-3">
         <img src={micIcon} alt="" width={10.9333} height={16.2667} className="shrink-0" />
         <label htmlFor="voice" className="sr-only">{t('portal.settings.audio.voiceLabel')}</label>
         <span className="relative inline-flex items-center">
@@ -340,7 +342,7 @@ function AudioCard({ settings, voices, language, socket, online, state, setLocal
               setLocal({ voice_gender })
               save({ voice_gender }, previous)
             }}
-            className="text-body-light min-h-[32px] appearance-none rounded-[10px] bg-[#5e6d77] py-[4px] pl-[12px] pr-[28px] text-[13px] text-white outline-none focus-visible:ring-2 focus-visible:ring-[#54aed3]"
+            className="text-body min-h-[44px] appearance-none rounded-control bg-[#5e6d77] py-1 pl-3 pr-8 text-white outline-none focus-visible:ring-2 focus-visible:ring-[#54aed3]"
           >
             {voiceOptions.map(o => (
               <option key={o.value} value={o.value} disabled={!o.available && o.value !== gender}>{o.label}</option>
@@ -349,8 +351,8 @@ function AudioCard({ settings, voices, language, socket, online, state, setLocal
           <img src={arrowIcon} alt="" width={6.5} height={4.00833} className="pointer-events-none absolute right-[11px] rotate-180 invert" />
         </span>
       </div>
-      <div className="flex items-end justify-between gap-2">
-        <div className="flex flex-col gap-[8px]">
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4">
           <Slider
             id="playback-speed"
             label={t('portal.settings.audio.speed')}
@@ -372,11 +374,11 @@ function AudioCard({ settings, voices, language, socket, online, state, setLocal
             onCommit={(v, prev) => save({ volume_db: v }, { volume_db: prev })}
           />
         </div>
-        <div className="mb-[54px] flex shrink-0 flex-col items-center gap-1">
-          <button type="button" onClick={testVoice} disabled={testing} className={`${PILL} w-[102px] bg-[#5e6d77]`}>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" onClick={testVoice} disabled={testing} className={`${PILL} min-w-[120px] bg-[#5e6d77]`}>
             {testing ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : t('portal.settings.audio.test')}
           </button>
-          <span aria-live="polite" className="text-body-medium max-w-[110px] text-center text-[11px] leading-tight text-intacta-text">{testNote}</span>
+          <span aria-live="polite" className="text-caption text-muted">{testNote}</span>
         </div>
       </div>
     </Card>
@@ -441,28 +443,28 @@ function AccountCard({ caregiver, onSaved, onLogout }) {
     }
   }
 
-  const field = 'text-body-regular h-[36px] w-full min-w-0 rounded-[10px] bg-white px-[10px] text-[14px] text-black outline-none focus-visible:ring-2 focus-visible:ring-[#54aed3]'
+  const field = 'text-body h-[44px] w-full min-w-0 rounded-control bg-white px-3 text-black outline-none focus-visible:ring-2 focus-visible:ring-[#54aed3]'
   return (
     <Card title={t('portal.settings.account.title')} state={state}>
-      <div className="flex items-start justify-between gap-3 pl-[6px]">
-        <p className="text-body-light text-[13px]">{t('portal.settings.account.profile')}</p>
-        <button type="button" onClick={onLogout} className={`${PILL} w-[102px] shrink-0 bg-[#761313]`}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-body">{t('portal.settings.account.profile')}</p>
+        <button type="button" onClick={onLogout} className={`${PILL} min-w-[102px] shrink-0 bg-[#761313]`}>
           {t('portal.settings.account.logout')}
         </button>
       </div>
-      <div className="grid grid-cols-[48px_1fr] items-center gap-x-2 gap-y-[6px] pl-[6px]">
-        <label htmlFor="cg-name" className="text-body-light text-[12px]">{t('portal.settings.account.name')}</label>
+      <div className="grid grid-cols-[56px_1fr] items-center gap-x-2 gap-y-2">
+        <label htmlFor="cg-name" className="text-caption text-muted">{t('portal.settings.account.name')}</label>
         <input id="cg-name" value={name} maxLength={100} autoComplete="name"
           onChange={e => setName(e.target.value)} onBlur={e => saveField('name', e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
           aria-invalid={!!errors.name} aria-describedby="cg-name-error" className={field} />
-        {errors.name && <p id="cg-name-error" className="text-body-medium col-start-2 text-[12px] text-[#ffb4b4]">{errors.name}</p>}
-        <label htmlFor="cg-email" className="text-body-light text-[12px]">{t('portal.settings.account.email')}</label>
+        {errors.name && <p id="cg-name-error" className="text-caption col-start-2 text-danger-soft">{errors.name}</p>}
+        <label htmlFor="cg-email" className="text-caption text-muted">{t('portal.settings.account.email')}</label>
         <input id="cg-email" type="email" value={email} maxLength={255} autoComplete="email" inputMode="email"
           onChange={e => setEmail(e.target.value)} onBlur={e => saveField('email', e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
           aria-invalid={!!errors.email} aria-describedby="cg-email-error" className={field} />
-        {errors.email && <p id="cg-email-error" className="text-body-medium col-start-2 text-[12px] text-[#ffb4b4]">{errors.email}</p>}
+        {errors.email && <p id="cg-email-error" className="text-caption col-start-2 text-danger-soft">{errors.email}</p>}
       </div>
     </Card>
   )

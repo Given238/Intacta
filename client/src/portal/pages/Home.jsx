@@ -1,11 +1,8 @@
 /**
  * Home — caregiver dashboard (Figma 29:42, iPhone 17 402×874).
  *
- *   Date:    top 18 below header, left 21, Inter Bold 13px white
- *   Cards:   Caregiver + Patient, 160×89 each, 28px gap, #043961, radius 25,
- *            title Inter Bold 13px, value Inter Light 13px one blank line below
- *   Daily:   348×48 bar, radius 25, "Daily context" SemiBold 13px + first daily item Light 13px
- *   Schedule: 355 wide card, radius 25, "Schedule" SemiBold 13px, rows Light 13px every 25px
+ *   Date (screen title), Caregiver + Patient cards, Daily context bar, Schedule card. Figma sizes are a reference:
+ *   text uses the portal type scale. From 768px the schedule moves to a right column.
  *
  * Data: GET /api/patient/status, /api/context-items?scope=daily, /api/routines (active, today's weekday).
  */
@@ -18,7 +15,7 @@ import { portalFetch } from '../portalApi'
 import { jakartaClock } from '../../lib/jakartaTime'
 import { getSession } from '../session'
 
-const CARD = 'rounded-[25px] bg-[#043961] text-white'
+const CARD = 'rounded-card bg-surface text-white'
 
 /* "08:00:00" → minutes since midnight */
 const toMinutes = (time) => {
@@ -91,23 +88,23 @@ export default function Home() {
   const nowMinutes = jakartaClock(now).minutes
 
   return (
-    <div className="pl-[21px] pr-[26px] pt-[18px] text-[13px] text-white">
-      <p className="text-title-bold leading-normal">{today}</p>
+    <div className="text-white">
+      <h1 className="text-title">{today}</h1>
 
       {loading && !data && (
         <div role="status" className="mt-10 flex flex-col items-center gap-3 text-white">
           <Loader2 size={28} className="animate-spin" aria-hidden="true" />
-          <span className="text-body-medium text-[15px]">{t('portal.home.loading')}</span>
+          <span className="text-body">{t('portal.home.loading')}</span>
         </div>
       )}
 
       {error && !loading && (
-        <div role="alert" className={`${CARD} mt-[11px] flex flex-col items-center gap-4 px-6 py-6 text-center`}>
-          <p className="text-body-medium text-[15px] leading-snug">{t('portal.home.error')}</p>
+        <div role="alert" className={`${CARD} mt-4 flex flex-col items-center gap-4 px-6 py-6 text-center`}>
+          <p className="text-body">{t('portal.home.error')}</p>
           <button
             type="button"
             onClick={retry}
-            className="min-h-[44px] rounded-[10px] bg-intacta-dark px-6 text-title-bold text-[15px] text-white"
+            className="text-body min-h-[44px] rounded-control bg-intacta-dark px-6 font-semibold text-white"
           >
             {t('portal.home.retry')}
           </button>
@@ -115,58 +112,59 @@ export default function Home() {
       )}
 
       {data && !error && (
-        <>
+        /* Phones: one column. From 768px: cards on the left, the schedule on the right */
+        <div className="mt-4 grid gap-4 md:grid-cols-2 md:items-start">
           {/* Caregiver + Patient cards */}
-          <div className="mt-[11px] grid grid-cols-2 gap-[28px] pl-[7px]">
-            <div className={`${CARD} min-h-[89px] px-[21px] pt-[12px] pb-[12px]`}>
-              <p className="text-title-bold leading-normal">{t('portal.home.caregiver')}</p>
-              <p className="mt-[16px] break-words text-body-light leading-normal">
+          <div className="grid grid-cols-2 gap-4">
+            <div className={`${CARD} min-h-[96px] p-4`}>
+              <h2 className="text-card">{t('portal.home.caregiver')}</h2>
+              <p className="text-secondary mt-2 break-words text-muted">
                 {/* The status API has no caregiver name yet, so this shows the fallback */}
                 {t('portal.home.shift', { name: data.status?.caregiver_name || t('portal.home.fallbackCaregiver') })}
               </p>
             </div>
-            <div className={`${CARD} min-h-[89px] px-[18px] pt-[13px] pb-[12px]`}>
-              <p className="text-title-bold leading-normal">{t('portal.home.patient')}</p>
-              <p className="mt-[16px] break-words text-body-light leading-normal">
+            <div className={`${CARD} min-h-[96px] p-4`}>
+              <h2 className="text-card">{t('portal.home.patient')}</h2>
+              <p className="text-secondary mt-2 break-words text-muted">
                 {data.status?.patient_name || t('portal.home.fallbackPatient')}
               </p>
             </div>
           </div>
 
-          {/* Daily context bar → Context tab */}
-          <Link
-            to="/portal/context"
-            className={`${CARD} mt-[18px] ml-[7px] flex min-h-[48px] items-center gap-2 py-[5px] pl-[21px] pr-[16px]`}
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block text-title-semibold leading-normal">{t('portal.home.dailyContext')}</span>
-              <span className="block truncate pl-[7px] text-body-light leading-normal">
-                {data.daily[0]?.text || t('portal.home.noNotes')}
-              </span>
-            </span>
-            <ChevronRight size={22} className="shrink-0" aria-hidden="true" />
-          </Link>
-
           {/* Schedule */}
-          <section className={`${CARD} mt-[22px] pt-[14px] pb-[28px] pl-[23px] pr-[16px]`}>
-            <h2 className="text-title-semibold leading-normal">{t('portal.home.schedule')}</h2>
+          <section className={`${CARD} p-4 md:col-start-2 md:row-span-2 md:row-start-1`}>
+            <h2 className="text-card">{t('portal.home.schedule')}</h2>
             {data.routines.length === 0 ? (
-              <p className="mt-[26px] pl-[8px] text-body-light leading-normal">{t('portal.home.noRoutines')}</p>
+              <p className="text-secondary mt-3 text-muted">{t('portal.home.noRoutines')}</p>
             ) : (
-              <ul className="mt-[26px] flex flex-col gap-[9px] pl-[8px]">
+              <ul className="mt-3 flex flex-col gap-2">
                 {data.routines.map(r => (
-                  <li
-                    key={r.id}
-                    // Figma strikes through routines that are already past for today
-                    className={`text-body-light leading-normal ${toMinutes(r.trigger_time) < nowMinutes ? 'line-through' : ''}`}
-                  >
-                    {formatTime(r.trigger_time)} - {r.title || r.display_text || t(`portal.home.category.${r.category}`)}
+                  <li key={r.id} className="text-body flex flex-wrap items-center gap-x-2">
+                    {/* Figma strikes through routines that are already past for today */}
+                    <span className={toMinutes(r.trigger_time) < nowMinutes ? 'text-muted line-through' : ''}>
+                      <span className="tabular-nums">{formatTime(r.trigger_time)}</span>
+                      {' – '}{r.title || r.display_text || t(`portal.home.category.${r.category}`)}
+                    </span>
+                    {r.blocked_category && (
+                      <span className="text-caption rounded-full bg-[#dc2626] px-2 py-[2px] text-white">{t('portal.safety.blocked')}</span>
+                    )}
                   </li>
                 ))}
               </ul>
             )}
           </section>
-        </>
+
+          {/* Daily context bar → Context tab */}
+          <Link to="/portal/context" className={`${CARD} flex min-h-[56px] items-center gap-2 px-4 py-3`}>
+            <span className="min-w-0 flex-1">
+              <span className="text-card block">{t('portal.home.dailyContext')}</span>
+              <span className="text-secondary block truncate text-muted">
+                {data.daily.find(i => !i.blocked_category)?.text || t('portal.home.noNotes')}
+              </span>
+            </span>
+            <ChevronRight size={22} className="shrink-0" aria-hidden="true" />
+          </Link>
+        </div>
       )}
     </div>
   )

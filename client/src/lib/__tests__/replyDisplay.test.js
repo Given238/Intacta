@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { UPCOMING_ALPHA, composite, contrastRatio } from '../contrast'
-import { BOTTOM_MARGIN, FONT_MAX, FONT_MIN, REPLY_BOX, STAGE_H, boxTop, fitFontSize } from '../replyLayout'
+import { BOTTOM_MARGIN, FONT_MIN, REPLY_BOX, STAGE_H, STAGE_W, fitFontSize, fluidMaxFont } from '../replyLayout'
 import { proceduralLevels } from '../amplitude'
 import { sampleBicubic } from '../../components/MeshBackground'
 
 const WHITE = [255, 255, 255]
-const STAGE_W = 1194
-const MESH_OPACITY = 0.88 // MeshBackground over the white stage backdrop
+const MESH_OPACITY = 0.88 // MeshBackground over the white backdrop
+const FONT_MAX = 40       // the greeting size on the 1194-wide Figma reference
 
 /** Mesh colour actually rendered at stage point (x, y). */
 const meshAt = (x, y) => composite(sampleBicubic(x / (STAGE_W - 1), y / (STAGE_H - 1)), MESH_OPACITY, WHITE)
@@ -46,27 +46,26 @@ describe('reply/greeting contrast against the gradient behind the text box', () 
   }
 })
 
-describe('fitFontSize', () => {
-  it('keeps 40px when the text fits in 3 lines', () => {
-    expect(fitFontSize(() => 2)).toBe(FONT_MAX)
+describe('fitFontSize (fluid)', () => {
+  it('keeps the maximum when the text fits', () => {
+    expect(fitFontSize(() => true, { max: 40 })).toBe(40)
   })
-  it('shrinks until it fits', () => {
-    expect(fitFontSize(size => (size > 36 ? 4 : 3))).toBe(36)
+  it('shrinks in 2px steps until it fits', () => {
+    expect(fitFontSize(size => size <= 34, { max: 40 })).toBe(34)
   })
-  it('stops at 32px when nothing fits (the box grows instead)', () => {
-    expect(fitFontSize(() => 6)).toBe(FONT_MIN)
+  it('stops at FONT_MIN when nothing fits (the slot then scrolls)', () => {
+    expect(fitFontSize(() => false, { max: 40 })).toBe(FONT_MIN)
   })
 })
 
-describe('boxTop', () => {
-  it('stays at the greeting position while the text fits above the stage bottom', () => {
-    expect(boxTop(120)).toBe(REPLY_BOX.top)
-  })
-  it('moves up only as much as needed for tall text', () => {
-    const h = 260
-    const top = boxTop(h)
-    expect(top).toBeLessThan(REPLY_BOX.top)
-    expect(top + h).toBe(STAGE_H - BOTTOM_MARGIN)
+describe('fluidMaxFont', () => {
+  it('24px on phones, ~40px on tablets, 56px on large screens', () => {
+    expect(fluidMaxFont(360)).toBe(24)
+    expect(fluidMaxFont(390)).toBe(25)
+    expect(fluidMaxFont(834)).toBe(34)
+    expect(fluidMaxFont(1194)).toBe(41)
+    expect(fluidMaxFont(1920)).toBe(56)
+    expect(fluidMaxFont(3000)).toBe(56)
   })
 })
 

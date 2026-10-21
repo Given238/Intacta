@@ -11,7 +11,7 @@ const ALL_DAYS   = [0, 1, 2, 3, 4, 5, 6]
 const CATEGORIES = ['meal', 'medication', 'hygiene']
 const TIME_24H   = /^([01]\d|2[0-3]):([0-5]\d)$/
 const SCRIPT_MAX = 300 // spoken text: the server's content-safety maximum
-const FIELD = 'text-body-regular w-full rounded-[10px] bg-white px-[14px] text-[15px] text-black outline-none focus-visible:ring-2 focus-visible:ring-[#54aed3]'
+const FIELD = 'text-body w-full rounded-control bg-white px-4 text-black outline-none focus-visible:ring-2 focus-visible:ring-[#54aed3]'
 
 export default function RoutineForm({ routine, onCancel, onSave }) {
   const { t } = useTranslation()
@@ -51,9 +51,9 @@ export default function RoutineForm({ routine, onCancel, onSave }) {
   }
 
   const err = (key) => errors[key] && (
-    <p id={`routine-${key}-error`} className="text-body-medium mt-[4px] text-[12px] text-[#ffb4b4]">{errors[key]}</p>
+    <p id={`routine-${key}-error`} className="text-caption mt-1 text-danger-soft">{errors[key]}</p>
   )
-  const label = 'text-title-semibold mb-[6px] block text-[13px] text-intacta-text'
+  const label = 'text-caption mb-2 block text-muted'
 
   return (
     <Dialog
@@ -64,7 +64,7 @@ export default function RoutineForm({ routine, onCancel, onSave }) {
         <DialogButton type="submit" form="routine-form" disabled={saving}>{t('portal.common.save')}</DialogButton>
       </>}
     >
-      <form id="routine-form" onSubmit={submit} noValidate className="flex flex-col gap-[14px]">
+      <form id="routine-form" onSubmit={submit} noValidate className="flex flex-col gap-4">
         <div>
           <label htmlFor="routine-title" className={label}>{t('portal.routines.fields.title')}</label>
           <input id="routine-title" value={title} onChange={e => { setTitle(e.target.value); setUnsafe(false) }} maxLength={120}
@@ -85,7 +85,7 @@ export default function RoutineForm({ routine, onCancel, onSave }) {
               return (
                 <button key={d} type="button" aria-pressed={on} aria-label={names[d]}
                   onClick={() => setDays(cur => (on ? cur.filter(x => x !== d) : [...cur, d]))}
-                  className={`flex h-[44px] w-[40px] items-center justify-center rounded-full text-[15px] ${on ? 'text-title-bold bg-intacta-dark text-white' : 'text-body-regular bg-white/10 text-white/70'}`}>
+                  className={`text-body flex h-[44px] w-[40px] items-center justify-center rounded-full ${on ? 'bg-intacta-dark font-bold text-white' : 'bg-white/10 text-white/80'}`}>
                   {letters[d]}
                 </button>
               )
@@ -107,11 +107,11 @@ export default function RoutineForm({ routine, onCancel, onSave }) {
           <label htmlFor="routine-script" className={label}>{t('portal.routines.fields.script')}</label>
           <textarea id="routine-script" value={script} onChange={e => { setScript(e.target.value); setUnsafe(false) }} rows={3}
             placeholder={t('portal.routines.fields.scriptHint')}
-            aria-invalid={!!errors.script} aria-describedby="routine-script-error" className={`${FIELD} resize-none py-[10px]`} />
+            aria-invalid={!!errors.script} aria-describedby="routine-script-error" className={`${FIELD} resize-none py-3`} />
           {err('script')}
         </div>
         {unsafe && (
-          <p role="alert" className="text-body-medium rounded-[10px] bg-[#dc2626]/20 px-[12px] py-[10px] text-[13px] text-[#ffd0d0]">
+          <p role="alert" className="text-secondary rounded-control bg-[#dc2626] px-3 py-3 text-white">
             {t('portal.safety.unsafe')}
           </p>
         )}

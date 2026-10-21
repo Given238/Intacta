@@ -9,9 +9,9 @@ export default function PortalToast({ message }) {
     <div
       role="alert"
       className="fixed left-1/2 -translate-x-1/2 flex items-center gap-[10px] w-max max-w-[calc(100%-32px)]
-                 rounded-[14px] bg-[#dc2626] px-5 py-[10px] text-body-medium text-[18px] text-white
+                 rounded-control bg-[#dc2626] px-5 py-3 text-body font-semibold text-white
                  shadow-[0_4px_20px_rgba(0,0,0,0.3)]"
-      style={{ top: 'calc(env(safe-area-inset-top) + 125px)', zIndex: 25 }}
+      style={{ top: 'calc(env(safe-area-inset-top) + 88px)', zIndex: 45 }}
     >
       <AlertCircle size={22} className="shrink-0" />
       {message}

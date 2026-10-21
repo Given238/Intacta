@@ -114,23 +114,23 @@ export default function InteractionLog({ socket }) {
     <section
       ref={cardRef}
       aria-labelledby="interaction-logs-title"
-      className="mt-[8px] flex min-h-[260px] flex-col rounded-[10px] bg-[#043961] text-white"
+      className="flex min-h-[260px] flex-col rounded-card bg-surface text-white"
       style={{ maxHeight }}
     >
-      <h2 id="interaction-logs-title" className="text-display shrink-0 px-[24px] pt-[18px] pb-[10px] text-[19px] leading-[20px] tracking-[0.1px]">
+      <h2 id="interaction-logs-title" className="text-card shrink-0 px-4 pt-4 pb-2">
         {t('portal.patient.logsTitle')}
       </h2>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-[14px] pb-[14px]">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3">
         {loading && (
           <div role="status" className="flex items-center justify-center gap-2 py-8">
             <Loader2 size={22} className="animate-spin" aria-hidden="true" />
-            <span className="text-body-medium text-[14px]">{t('portal.common.loading')}</span>
+            <span className="text-secondary">{t('portal.common.loading')}</span>
           </div>
         )}
         {error && !loading && <LoadError message={t('portal.patient.logsError')} onRetry={retry} />}
         {!loading && !error && rows.length === 0 && (
-          <div className="px-[10px] py-6"><Empty>{t('portal.patient.logsEmpty')}</Empty></div>
+          <div className="px-2 py-6"><Empty>{t('portal.patient.logsEmpty')}</Empty></div>
         )}
         {!loading && !error && rows.length > 0 && (
           <ul className="flex flex-col">
@@ -140,7 +140,7 @@ export default function InteractionLog({ socket }) {
               return (
                 <li key={row.id}>
                   {showDay && (
-                    <p className="text-title-semibold px-[10px] pt-[10px] pb-[2px] text-[12px] uppercase tracking-wide text-intacta-text">
+                    <p className="text-caption px-2 pt-3 pb-1 uppercase tracking-wide text-muted">
                       {dayLabel(at)}
                     </p>
                   )}
@@ -157,12 +157,12 @@ export default function InteractionLog({ socket }) {
         )}
         {nextBefore && !loading && !error && (
           <div className="flex flex-col items-center gap-1 pt-3">
-            {moreError && <p className="text-body-medium text-[12px] text-[#ffb4b4]">{t('portal.patient.logsMoreError')}</p>}
+            {moreError && <p className="text-caption text-danger-soft">{t('portal.patient.logsMoreError')}</p>}
             <button
               type="button"
               onClick={loadMore}
               disabled={loadingMore}
-              className="text-title-semibold flex min-h-[44px] items-center gap-2 rounded-[10px] px-4 text-[14px] text-intacta-text disabled:opacity-60"
+              className="text-secondary flex min-h-[44px] items-center gap-2 rounded-control px-4 font-semibold text-muted disabled:opacity-60"
             >
               {loadingMore && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
               {t('portal.patient.loadOlder')}
@@ -203,46 +203,46 @@ function LogRow({ row, time, open, onToggle }) {
   const backup   = !!row.ai_response?._fallback // static fallback (the model reply failed or timed out)
 
   return (
-    <div className="py-[8px]">
-      <div className="flex min-h-[36px] items-center justify-between gap-2">
+    <div className="py-2">
+      <div className="flex min-h-[44px] items-center justify-between gap-2">
         <button
           type="button"
           onClick={onToggle}
           aria-expanded={open}
           aria-controls={panelId}
-          className="flex min-h-[44px] items-center gap-[6px] pl-[46px] pr-1"
+          className="flex min-h-[44px] items-center gap-2 pl-2 pr-1"
         >
-          <span className="text-display whitespace-nowrap text-[19px] leading-[20px] tracking-[0.1px]">{time}</span>
-          <ChevronDown size={18} aria-hidden="true" className={`shrink-0 text-intacta-text transition-transform ${open ? 'rotate-180' : ''}`} />
+          <span className="text-card whitespace-nowrap tabular-nums">{time}</span>
+          <ChevronDown size={18} aria-hidden="true" className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
           {backup && <BackupTag />}
         </button>
         {hasAudio ? <WaveformPill row={row} /> : <SourcePill source={row.source} />}
       </div>
       {open && (
-        <div id={panelId} className="mx-[10px] mt-[6px] rounded-[10px] bg-white/10 px-[14px] py-[10px] text-[13px] leading-normal">
+        <div id={panelId} className="text-secondary mx-2 mt-2 rounded-control bg-white/10 px-3 py-3">
           {row.source === 'routine' ? (
             <>
-              <p className="text-title-semibold text-intacta-text">{t('portal.patient.routine')}</p>
-              <p className="text-body-regular whitespace-pre-line break-words">{row.transcript || '–'}</p>
-              <p className="text-title-semibold mt-[8px] text-intacta-text">
+              <p className="text-caption text-muted">{t('portal.patient.routine')}</p>
+              <p className="text-body whitespace-pre-line break-words">{row.transcript || '–'}</p>
+              <p className="text-caption mt-2 text-muted">
                 {row.ai_response?.missed ? t('portal.patient.routineMissed') : t('portal.patient.intactaReplied')}
               </p>
-              <p className="text-body-regular whitespace-pre-line break-words">{(row.ai_response?.missed ? row.ai_response.script : reply) || '–'}</p>
+              <p className="text-body whitespace-pre-line break-words">{(row.ai_response?.missed ? row.ai_response.script : reply) || '–'}</p>
             </>
           ) : row.source === 'broadcast' ? (
             <>
-              <p className="text-title-semibold text-intacta-text">{t('portal.patient.youSent')}</p>
-              <p className="text-body-regular whitespace-pre-line break-words">{row.transcript}</p>
+              <p className="text-caption text-muted">{t('portal.patient.youSent')}</p>
+              <p className="text-body whitespace-pre-line break-words">{row.transcript}</p>
             </>
           ) : (
             <>
-              <p className="text-title-semibold text-intacta-text">{t('portal.patient.patientSaid')}</p>
-              <p className="text-body-regular whitespace-pre-line break-words">{row.transcript || '–'}</p>
-              <p className="text-title-semibold mt-[8px] flex items-center gap-2 text-intacta-text">
+              <p className="text-caption text-muted">{t('portal.patient.patientSaid')}</p>
+              <p className="text-body whitespace-pre-line break-words">{row.transcript || '–'}</p>
+              <p className="text-caption mt-2 flex items-center gap-2 text-muted">
                 {t('portal.patient.intactaReplied')}
                 {backup && <BackupTag />}
               </p>
-              <p className="text-body-regular whitespace-pre-line break-words">{reply || '–'}</p>
+              <p className="text-body whitespace-pre-line break-words">{reply || '–'}</p>
             </>
           )}
         </div>
@@ -255,7 +255,7 @@ function LogRow({ row, time, open, onToggle }) {
 function BackupTag() {
   const { t } = useTranslation()
   return (
-    <span title={t('portal.patient.backupReplyHint')} className="text-title-semibold rounded-full border border-white/40 px-[6px] py-[1px] text-[11px] leading-[16px] text-intacta-text">
+    <span title={t('portal.patient.backupReplyHint')} className="text-caption rounded-full border border-white/50 px-2 py-[1px] text-white">
       {t('portal.patient.backupReply')}
     </span>
   )
@@ -266,9 +266,9 @@ function SourcePill({ source }) {
   const { t } = useTranslation()
   const Icon = SOURCE_ICONS[source] || Mic
   return (
-    <span className="flex h-[36px] w-[132px] shrink-0 items-center justify-center gap-[8px] rounded-[10px] bg-white px-2 text-[#043961]">
+    <span className="flex h-[36px] w-[132px] shrink-0 items-center justify-center gap-2 rounded-control bg-white px-2 text-[#043961]">
       <Icon size={18} aria-hidden="true" />
-      <span className="text-title-semibold truncate text-[13px]">{t(`portal.patient.source.${source}`, { defaultValue: source })}</span>
+      <span className="text-caption truncate">{t(`portal.patient.source.${source}`, { defaultValue: source })}</span>
     </span>
   )
 }
@@ -334,13 +334,13 @@ function WaveformPill({ row }) {
       aria-label={label}
       title={label}
       disabled={state === 'expired'}
-      className="relative flex h-[36px] w-[132px] shrink-0 items-center gap-[4px] rounded-[10px] bg-white pl-[8px] pr-[6px] text-[#1e1e1e] disabled:opacity-60"
+      className="relative flex h-[44px] w-[132px] shrink-0 items-center gap-1 rounded-control bg-white pl-2 pr-2 text-[#1e1e1e] disabled:opacity-60"
     >
       {state === 'loading'
         ? <Loader2 size={14} className="shrink-0 animate-spin" aria-hidden="true" />
         : state === 'playing' ? <Pause size={14} className="shrink-0" aria-hidden="true" /> : <Play size={14} className="shrink-0" aria-hidden="true" />}
       {state === 'expired' || state === 'error' ? (
-        <span className="text-body-medium flex-1 truncate text-center text-[11px]">{label}</span>
+        <span className="text-caption flex-1 truncate text-center">{label}</span>
       ) : (
         <span className="relative flex h-[24px] flex-1 items-center justify-between" aria-hidden="true">
           {bars.map((h, i) => (

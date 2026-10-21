@@ -751,6 +751,40 @@ STT latency is model/network bound: plain-text vs JSON output and "minimal think
 and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the API was too slow this session).
 **After numbers**: PENDING (benchmarks with the new code were still running at commit time; filled in below when done).
 
+### Part C: type scale + responsive layouts (DONE, committed locally)
+**C1 type system**
+- Tokens once in `client/src/index.css` (@theme): `text-title` 22-26/700, `text-card` 16-18/600, `text-body` 15-16/400/1.5,
+  `text-secondary` 13-14/400, `text-caption` 12/500; `text-muted` (white 80%), `bg-surface` (#043961), `bg-canvas` (#427aa1),
+  `text-danger-soft`, `rounded-card` 16 / `rounded-control` 10. `client/src/portal/components/Type.jsx` (Heading/Text/Label/Caption).
+- Every portal screen + shared component refactored: no `text-[NNpx]`, no 300/800 weights (Inter 300 import dropped), Baloo only
+  for the wordmark; times/numbers `tabular-nums`; each screen has a screen title.
+- Contrast measured and fixed (`client/src/lib/__tests__/portalContrast.test.js`, 11 cases ≥4.5:1): the old secondary grey
+  #c6d6df was 3.1:1 on the page background and 4.3:1 under the header tagline → white 80% on cards (8.2:1), full white on the page,
+  white 85% tagline (5.1:1).
+- Terminal: fluid reply/greeting `clamp(24px, 16.6px + 2.05vw, 56px)`, line-height 1.25, text-shadow kept, ExtraBold.
+**C2 responsive**
+- Terminal: `TerminalStage` is now a fluid flex layout (`client/src/terminal.css`), no scaled stage. `Header.jsx` wide (≥900px
+  landscape: Figma buttons + code card) / compact (logo + wordmark + Menu popover). `WaveformBars.jsx`: 11-column grid locked to
+  the Figma aspect, percentage heights, same animation. `ReplyText.jsx`: shrinks the font until it fits its slot (ResizeObserver),
+  scrolls only below 16px. `replyLayout.js`: `fluidMaxFont`, `fitFontSize(fits)`. StartGate + Pairing on the same layout; the dev
+  typed input is in the flow (never overlaps). Dev builds expose `window.__intactaSay` for the layout check.
+- Portal: no 480px column; container max 1100px; ≥768px 2 columns (Home, Context, Patient, Settings), Routines max 720px;
+  ≥1024px `SideRail` replaces the tab bar; Dialog = bottom sheet <640px / centered ≥640px; Pair = centered card; touch targets
+  raised to 44px (context edit/delete, log rows, settings pills, sliders, routine controls). Routine rows on two lines so the
+  "Blocked for safety" tag never squeezes the title.
+**C3 verification**
+- `client/scripts/check-layout.mjs` (`npm run check:layout`, playwright-core + installed Chrome): 9 viewports × 8 pages
+  (terminal idle, terminal long reply, pair, Home, Patient, Routines, Context, Settings) = 72 screenshots.
+  Final run: **0 pages with horizontal scroll, 0 visible controls smaller than 44×44** (day toggles are 32×44, see below),
+  the long reply never scrolled.
+**Known visual diffs (time-boxed, not fixed)**
+- Terminal reply font is 24px on phones and ~34px on a portrait tablet: below CLAUDE.md's "font ≥32pt" target (flagged there).
+- Portrait terminal: the waveform scales with the width, so it is small with empty mesh above it.
+- Routine day toggles are 32px wide on phones (<640px), 40px from 640px (height 44px).
+- The compact terminal Menu and the portal sidebar rail are not in Figma (built from the header tokens).
+- `/terminal/pairing`, dialogs and the keyboard-open state are not covered by the screenshot script (checked by hand in code only).
+- Terminal contrast is still below 7:1 on the bright part of the gradient (unchanged, see the 2026-10-12 notes).
+
 ## Session summary: voice + routines (2026-10-12)
 - **Done**: A (ElevenLabs `/api/tts`, voices by gender, Tap-to-start, shared audio element + analyser, browser speech
   fallback, portal voice + Test Voice), B (Silero VAD mic, server STT with Gemini audio, mic state machine with 3.0 s
@@ -822,7 +856,7 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 ---
 
 ## NEXT
-- IN PROGRESS (2026-10-21): Part C (type scale + responsive). Part B "after" benchmark numbers to fill in.
+- IN PROGRESS (2026-10-21): Part B follow-up (reply quality found in the "after" benchmark), then the final summary.
 - Decide FR-4.3.2: keep the 2500 ms + 2 s ladder or restore 1.2 s (see Part B).
 - Re-run the live Tier 2 safety check once the Gemini API is reachable at normal speed (see Part A).
 - Tablet test of Parts A–C (lists under "Voice and routines"); restart `npm run dev` first so `/vad/` assets are served.

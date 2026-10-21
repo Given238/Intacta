@@ -17,7 +17,6 @@ import StartGate from './components/StartGate'
 import Home      from './pages/Home'
 import Pairing   from './pages/Pairing'
 import TerminalStage from './components/TerminalStage'
-import MeshBackground from './components/MeshBackground'
 import Header from './components/Header'
 
 const API = import.meta.env.VITE_API_URL || ''
@@ -122,6 +121,8 @@ export default function App() {
     return presentReply({ text: shown, source, speech: result.speech || undefined, playbackSpeed: speed })
   }, [presentReply, speakStart, speakAbandoned])
   sayRef.current = say
+  // Dev builds only: lets the layout check script (scripts/check-layout.mjs) show a long reply without a paired tablet
+  if (import.meta.env.DEV) window.__intactaSay = say
 
   /* ── Routines wait while a reply is spoken / loading or the patient's words are being processed ── */
   const micStateRef = useRef(micState)
@@ -340,14 +341,8 @@ function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, r
         <Route
           path="/terminal/pairing"
           element={
-            <TerminalStage>
-              <MeshBackground opacity={0.88} />
-              <Header language={language} />
-              <Pairing
-                code={pairingCode}
-                language={language}
-                onRegenerate={onEnterCaregiver}
-              />
+            <TerminalStage header={<Header language={language} />}>
+              <Pairing code={pairingCode} onRegenerate={onEnterCaregiver} />
             </TerminalStage>
           }
         />
@@ -376,8 +371,7 @@ function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, r
 }
 
 /* ── Hidden typed-utterance input ──
-   Rendered inside the stage (Home's typedSlot), just under the header, so it never covers the reply box. */
-const TYPED_BOX = { left: (1194 - 600) / 2, top: 140, width: 600 }
+   Rendered in the flow of the main area (Home's typedSlot), just under the header, so it never covers the text. */
 
 function TypedUtterance({ onReply, onClose }) {
   const { t } = useTranslation()
@@ -407,7 +401,7 @@ function TypedUtterance({ onReply, onClose }) {
   }
 
   return (
-    <div style={{ position: 'absolute', ...TYPED_BOX, zIndex: 30 }}>
+    <div className="term-typed">
       <input
         ref={inp}
         className="w-full px-4 py-2 rounded-lg bg-black/45 text-white placeholder-white/60 border border-white/40 text-lg"

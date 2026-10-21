@@ -14,6 +14,42 @@
   --color-intacta-bar:    #ebebeb;
   --font-family-brand:    "Baloo Da 2", cursive;
   --font-family-ui:      "Inter", system-ui, sans-serif;
+
+  /*
+   * Portal type scale (C1), the only text sizes the portal uses. Each utility sets size + line-height + weight:
+   *   text-title      screen title          22-26px / 700 / 1.2
+   *   text-card       card or section title 16-18px / 600 / 1.3
+   *   text-body       body, buttons, inputs 15-16px / 400 / 1.5
+   *   text-secondary  secondary             13-14px / 400 / 1.45  (color: text-muted on cards, white on the page)
+   *   text-caption    caption / label / tag 12px    / 500 / 1.35
+   * Weights 400/600/700 only (500 for captions). Numbers and times add `tabular-nums`.
+   * Spacing scale 4/8/12/16/24 (Tailwind 1/2/3/4/6); radius: rounded-card (cards), rounded-control (inputs, buttons).
+   */
+  --text-title: clamp(22px, 20.5px + 0.4vw, 26px);
+  --text-title--line-height: 1.2;
+  --text-title--font-weight: 700;
+  --text-card: clamp(16px, 15.25px + 0.2vw, 18px);
+  --text-card--line-height: 1.3;
+  --text-card--font-weight: 600;
+  --text-body: clamp(15px, 14.6px + 0.1vw, 16px);
+  --text-body--line-height: 1.5;
+  --text-body--font-weight: 400;
+  --text-secondary: clamp(13px, 12.6px + 0.1vw, 14px);
+  --text-secondary--line-height: 1.45;
+  --text-secondary--font-weight: 400;
+  --text-caption: 12px;
+  --text-caption--line-height: 1.35;
+  --text-caption--font-weight: 500;
+
+  /* Secondary text on the dark cards: white at 80% = 8.2:1 on #043961, 6.4:1 on white/10 panels (portalContrast.test.js).
+     On the page background (#427aa1) only full white passes (4.6:1). */
+  --color-muted: rgba(255, 255, 255, 0.8);
+  --color-surface: #043961;
+  --color-canvas: #427aa1;
+  --color-danger-soft: #ffc4c4;
+
+  --radius-card: 16px;
+  --radius-control: 10px;
 }
 
 /* ── Reset / base ── */

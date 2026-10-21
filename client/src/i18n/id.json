@@ -284,5 +284,7 @@
       "save": "Simpan",
       "cancel": "Batal"
     }
-  }
+  },
+  "menu": "Menu",
+  "regenerate": "Buat kode baru"
 }

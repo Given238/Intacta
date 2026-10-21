@@ -1,13 +1,9 @@
 /**
  * Pair — caregiver code entry (Figma 62:171, iPhone 17 402×874).
  *
- *   Page bg #164c67, header 115px
- *   Back link:  top 183, left 48, Inter 20px white → /terminal
- *   Title:      top 233, left 49, 40px bold white
- *   Card:       top 320, 328×348, #137ba6, radius 12, shadow 0 0 9 5 rgba(6,19,44,.25)
- *     subtitle top 20 (23px Baloo), divider top 71 (274 wide, #54aed3),
- *     "Enter code:" top 98 (32px #dff3ff), code box top 170 (260×57 #234053 r10, 30px),
- *     Confirm top 269 (163×48 #0e5f80 r9, 25px #e4f5ff)
+ *   Page bg #164c67, back link, screen title, then a centered card (#137ba6) on every width:
+ *   subtitle, divider (#54aed3), "Enter code:", code box (#234053), Confirm (#0e5f80).
+ *   Figma sizes are a reference; text uses the portal type scale.
  */
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -88,83 +84,76 @@ export default function Pair() {
     }
   }
 
+  const backClass = 'text-body -ml-2 inline-flex min-h-[44px] items-center gap-2 px-2 text-white'
+
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-[#164c67] text-white">
       <PortalHeader />
       <PortalToast message={error} />
 
-      <main className="mx-auto w-full max-w-[402px] px-[41px] pb-10">
-        {linkToken ? (
-          <Link
-            to="/portal/settings"
-            className="mt-[64px] -ml-2 inline-flex min-h-[44px] items-center gap-2 px-2 text-body-regular text-[20px] text-white"
+      {/* Centered card on every width */}
+      <main className="flex flex-1 items-start justify-center px-4 py-6 sm:items-center">
+        <div className="w-full max-w-[420px]">
+          {linkToken ? (
+            <Link to="/portal/settings" className={backClass}>
+              <span aria-hidden="true">←</span>
+              {t('portal.pair.backToSettings')}
+            </Link>
+          ) : (
+            /* "← back to patient page" — the terminal is its own app, so a full page load */
+            <a href="/terminal" className={backClass}>
+              <span aria-hidden="true">←</span>
+              {t('portal.pair.back')}
+            </a>
+          )}
+
+          <h1 className="text-title mt-2 text-white">{t('portal.pair.title')}</h1>
+
+          <form
+            onSubmit={handleSubmit}
+            noValidate
+            className="mt-6 flex flex-col items-center rounded-card bg-intacta-mid px-6 pt-6 pb-8
+                       shadow-[0_0_9px_5px_rgba(6,19,44,0.25)]"
           >
-            <span aria-hidden="true">←</span>
-            {t('portal.pair.backToSettings')}
-          </Link>
-        ) : (
-          /* "← back to patient page" — the terminal is its own app, so a full page load */
-          <a
-            href="/terminal"
-            className="mt-[64px] -ml-2 inline-flex min-h-[44px] items-center gap-2 px-2 text-body-regular text-[20px] text-white"
-          >
-            <span aria-hidden="true">←</span>
-            {t('portal.pair.back')}
-          </a>
-        )}
+            <p className="text-card text-center text-white">
+              {t(linkToken ? 'portal.pair.subtitleLink' : 'portal.pair.subtitle')}
+            </p>
 
-        <h1 className="mt-[2px] text-title-bold text-[40px] leading-normal text-white">
-          {t('portal.pair.title')}
-        </h1>
+            <img src={dividerSvg} alt="" width={274} height={2} className="mt-3 w-full max-w-[274px]" />
 
-        <form
-          onSubmit={handleSubmit}
-          noValidate
-          className="mt-[30px] flex flex-col items-center rounded-[12px] bg-intacta-mid px-[29px] pt-[20px] pb-[31px]
-                     shadow-[0_0_9px_5px_rgba(6,19,44,0.25)]"
-        >
-          <p className="text-center text-title-bold text-[21px] leading-normal text-white">
-            {t(linkToken ? 'portal.pair.subtitleLink' : 'portal.pair.subtitle')}
-          </p>
+            <label htmlFor="pair-code" className="text-card mt-6 text-[#dff3ff]">
+              {t('portal.pair.enterCode')}
+            </label>
 
-          <img src={dividerSvg} alt="" width={274} height={2} className="mt-[13px] w-full max-w-[274px]" />
+            <input
+              id="pair-code"
+              type="text"
+              inputMode="text"
+              autoComplete="one-time-code"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              value={toDisplay(code)}
+              onChange={handleChange}
+              placeholder={t('portal.pair.placeholder')}
+              maxLength={CODE_LENGTH + SEPARATOR.length}
+              aria-invalid={!!error}
+              className="text-title mt-4 h-[56px] w-full max-w-[260px] rounded-control border-0 bg-intacta-panel text-center
+                         uppercase tracking-[0.08em] tabular-nums text-white
+                         outline-none placeholder:text-white/60 focus-visible:ring-2 focus-visible:ring-[#54aed3]"
+            />
 
-          <label
-            htmlFor="pair-code"
-            className="mt-[25px] text-title-bold text-[32px] leading-normal text-[#dff3ff]"
-          >
-            {t('portal.pair.enterCode')}
-          </label>
-
-          <input
-            id="pair-code"
-            type="text"
-            inputMode="text"
-            autoComplete="one-time-code"
-            autoCapitalize="characters"
-            autoCorrect="off"
-            spellCheck={false}
-            value={toDisplay(code)}
-            onChange={handleChange}
-            placeholder={t('portal.pair.placeholder')}
-            maxLength={CODE_LENGTH + SEPARATOR.length}
-            aria-invalid={!!error}
-            className="mt-[28px] h-[57px] w-full max-w-[260px] rounded-[10px] border-0 bg-intacta-panel text-center
-                       text-title-bold text-[30px] uppercase text-white
-                       outline-none placeholder:text-white/50 focus-visible:ring-2 focus-visible:ring-[#54aed3]"
-          />
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-[42px] flex h-[48px] w-[163px] items-center justify-center gap-2 rounded-[9px] bg-[#0e5f80]
-                       text-title-semibold text-[25px] text-[#e4f5ff]
-                       disabled:opacity-70 disabled:cursor-wait"
-          >
-            {loading && <Loader2 size={22} className="animate-spin" aria-hidden="true" />}
-            {t('portal.pair.confirm')}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={loading}
+              className="text-body mt-8 flex h-[48px] min-w-[163px] items-center justify-center gap-2 rounded-control bg-[#0e5f80] px-6
+                         font-semibold text-[#e4f5ff] disabled:cursor-wait disabled:opacity-70"
+            >
+              {loading && <Loader2 size={20} className="animate-spin" aria-hidden="true" />}
+              {t('portal.pair.confirm')}
+            </button>
+          </form>
+        </div>
       </main>
     </div>
   )

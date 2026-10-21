@@ -1,0 +1,266 @@
+/*
+ * Patient terminal layout: fluid, no fixed stage (C2).
+ *
+ *   .term            full viewport (100dvh), mesh full-bleed behind everything, safe-area aware
+ *   .term-header     teal bar. Wide = landscape and ≥900px: Figma 1:2 layout (logo, wordmark, tagline, two
+ *                    Baloo buttons). Compact (portrait or <900px): logo + wordmark + one menu button (popover).
+ *   .term-main       the rest: [typed dev input] → waveform slot → text slot
+ *   .term-wave       11 bars on a grid locked to the Figma aspect (1068×210), baseline aligned, square corners
+ *   .term-text-slot  greeting / reply; ReplyText shrinks the font until it fits, it never scrolls first
+ *
+ * Type: Baloo Da 2 only for the wordmark and the header buttons; Inter for everything else.
+ * Reply / greeting: fluid 24px (phones) → ~40px (tablets) → 56px (large screens), line-height 1.25.
+ */
+
+.term {
+  --term-header-h: clamp(56px, 9dvh, 72px);
+  --term-reply-max: clamp(24px, 16.6px + 2.05vw, 56px);
+  --term-pad-x: max(clamp(12px, 2.8vw, 34px), env(safe-area-inset-left), env(safe-area-inset-right));
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: #ffffff; /* the mesh is 88% opaque over white, as in Figma */
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+@media (min-width: 900px) and (orientation: landscape) {
+  .term { --term-header-h: clamp(88px, 15dvh, 125px); }
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.term-header {
+  position: relative;
+  z-index: 15;
+  flex: none;
+  background: #05668d;
+  padding-top: env(safe-area-inset-top);
+}
+.term-header-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1.6vw, 20px);
+  height: var(--term-header-h);
+  padding-inline: var(--term-pad-x);
+}
+.term-logo { height: calc(var(--term-header-h) * 0.54); width: auto; flex: none; }
+.term-brand { display: flex; flex-direction: column; min-width: 0; }
+.term-wordmark {
+  font-family: "Baloo Da 2", cursive;
+  font-weight: 800;
+  font-size: calc(var(--term-header-h) * 0.42);
+  line-height: 1;
+  color: #ffffff;
+  white-space: nowrap;
+}
+.term-tagline {
+  display: none;
+  margin-top: 0.35em;
+  font-size: clamp(14px, 1.7vw, 20px);
+  font-weight: 500;
+  line-height: 1.2;
+  color: #c6d6df;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Wide header buttons (Figma: Baloo Da 2 25px, divider between) */
+.term-actions { display: none; margin-left: auto; align-items: center; gap: clamp(16px, 3vw, 38px); }
+.term-action {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+  font-family: "Baloo Da 2", cursive;
+  font-size: clamp(18px, 2.1vw, 25px);
+  font-weight: 800;
+  line-height: 1;
+  text-align: left;
+}
+.term-action:disabled { opacity: 0.7; cursor: wait; }
+.term-action-lines { display: flex; flex-direction: column; gap: 2px; }
+.term-action-lines .light { font-weight: 400; }
+.term-divider { width: 1px; height: calc(var(--term-header-h) * 0.62); flex: none; background: rgba(255, 255, 255, 0.5); }
+
+/* Compact: one menu button */
+.term-menu-btn {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 12px;
+  background: transparent;
+  color: #ffffff;
+  font-family: "Baloo Da 2", cursive;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+@media (min-width: 900px) and (orientation: landscape) {
+  .term-tagline { display: block; }
+  .term-actions { display: flex; }
+  .term-menu-btn, .term-menu { display: none; }
+}
+
+/* Popovers: the code card (Figma 62:123) and the compact menu */
+.term-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: min(260px, calc(100vw - 24px));
+  padding: 16px;
+  border-radius: 16px;
+  background: #137ba6;
+  color: #ffffff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+.term-menu {
+  position: absolute;
+  top: calc(100% - 4px);
+  right: var(--term-pad-x);
+  z-index: 20;
+  width: min(300px, calc(100vw - 24px));
+  padding: 8px;
+  border-radius: 16px;
+  background: #137ba6;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+.term-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #ffffff;
+  font-family: "Baloo Da 2", cursive;
+  font-size: 18px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+.term-menu-item:hover, .term-menu-item:focus-visible { background: rgba(255, 255, 255, 0.12); outline: none; }
+.term-code-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 64px;
+  margin: 10px 0;
+  border-radius: 12px;
+  background: #234053;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+}
+.term-popover-title { margin: 0; font-size: 16px; font-weight: 600; text-align: center; }
+.term-popover-note { margin: 0; font-size: 13px; font-weight: 400; line-height: 1.4; text-align: center; color: rgba(255, 255, 255, 0.85); }
+
+/* ── Main area ────────────────────────────────────────────────────────────── */
+.term-main {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-inline: var(--term-pad-x);
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+.term-typed { flex: none; width: min(600px, 100%); margin: 12px auto 0; position: relative; z-index: 30; }
+.term-wave-slot {
+  flex: 1.4 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: clamp(16px, 5dvh, 89px);
+}
+.term-text-slot {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+.term-text-box { position: relative; width: min(100%, 59vw); height: 100%; }
+@media (max-width: 899px), (orientation: portrait) {
+  .term-wave-slot { flex: 1 1 0; padding-bottom: clamp(12px, 3dvh, 32px); }
+  .term-text-slot { flex: 1.3 1 0; }
+  .term-text-box { width: 100%; }
+}
+
+/* Waveform: Figma bars span 1068×210 (x 63–1131), 78 wide on a 99 pitch */
+.term-wave {
+  display: grid;
+  grid-template-columns: repeat(11, 1fr);
+  grid-template-rows: 100%;
+  column-gap: 1.97%;
+  align-items: end;
+  height: min(100%, 17.4vw);
+  aspect-ratio: 1068 / 210;
+  max-width: 89.5%;
+  pointer-events: none;
+}
+.term-wave .waveform-bar { width: 100%; transform-origin: bottom center; will-change: transform; }
+
+/* Greeting / reply text (fluid, ExtraBold, soft shadow) */
+.term-reply {
+  margin: 0;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+  color: #ffffff;
+  overflow-wrap: anywhere;
+}
+
+/* Pairing code panel: top-right on wide screens, centered on compact */
+.term-pair-panel {
+  position: absolute;
+  top: 12px;
+  right: var(--term-pad-x);
+  z-index: 20;
+  width: min(280px, calc(100% - 24px));
+}
+@media (max-width: 899px), (orientation: portrait) {
+  .term-pair-panel { left: 50%; right: auto; transform: translateX(-50%); }
+}
+
+.term-toast {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 25;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  padding: 10px 20px;
+  border-radius: 14px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 600;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}

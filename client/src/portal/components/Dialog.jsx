@@ -1,5 +1,6 @@
 /**
- * Dialog — modal sheet for the portal (add/edit forms, confirmations). Not in Figma.
+ * Dialog — modal for the portal (add/edit forms, confirmations). Not in Figma.
+ * Bottom sheet below 640px, centered dialog from 640px.
  * Esc and the backdrop close it; focus moves into it on open and back on close.
  */
 import { useEffect, useRef } from 'react'
@@ -34,23 +35,23 @@ export default function Dialog({ title, onClose, children, footer }) {
         aria-labelledby="dialog-title"
         tabIndex={-1}
         onClick={e => e.stopPropagation()}
-        className="flex max-h-[90dvh] w-full max-w-[480px] flex-col rounded-t-[20px] bg-[#043961] text-white shadow-[0_0_24px_rgba(6,19,44,0.5)] outline-none sm:rounded-[20px]"
+        className="flex max-h-[90dvh] w-full flex-col rounded-t-card bg-surface text-white shadow-[0_0_24px_rgba(6,19,44,0.5)] outline-none sm:max-w-[520px] sm:rounded-card"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        <div className="flex items-center justify-between gap-2 px-[20px] pt-[16px] pb-[8px]">
-          <h2 id="dialog-title" className="text-display text-[19px] leading-[24px]">{title}</h2>
+        <div className="flex items-center justify-between gap-2 px-6 pt-4 pb-2">
+          <h2 id="dialog-title" className="text-title">{title}</h2>
           <button
             type="button"
             data-close
             onClick={onClose}
             aria-label={t('portal.common.close')}
-            className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-intacta-text"
+            className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-muted"
           >
             <X size={22} aria-hidden="true" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-[20px] pb-[12px]">{children}</div>
-        {footer && <div className="flex justify-end gap-2 px-[20px] pt-[8px] pb-[16px]">{footer}</div>}
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-3">{children}</div>
+        {footer && <div className="flex justify-end gap-2 px-6 pt-2 pb-4">{footer}</div>}
       </div>
     </div>
   )
@@ -60,13 +61,13 @@ export function DialogButton({ variant = 'primary', ...props }) {
   const styles = {
     primary: 'bg-intacta-dark text-white',
     danger:  'bg-[#dc2626] text-white',
-    ghost:   'text-intacta-text',
+    ghost:   'text-muted',
   }
   return (
     <button
       type="button"
       {...props}
-      className={`text-title-bold flex min-h-[44px] items-center justify-center gap-2 rounded-[10px] px-5 text-[15px] disabled:opacity-60 ${styles[variant]}`}
+      className={`text-body flex min-h-[44px] items-center justify-center gap-2 rounded-control px-5 font-semibold disabled:opacity-60 ${styles[variant]}`}
     />
   )
 }

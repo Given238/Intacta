@@ -1,25 +1,51 @@
 /**
- * ReplyText — the only text slot on the terminal (Figma 62:25: left 271, top 610, width 703,
- * Inter ExtraBold 40px white, centered).
+ * ReplyText — the only text slot on the terminal (Figma 62:25: Inter ExtraBold, white, centered, soft shadow).
  *
- * idle: the greeting. With a reply: cross-fades (FADE_MS) to the reply with a word-by-word
- * highlight. Greeting and reply share one text style (incl. a soft shadow), no background. Long
- * replies shrink to FONT_MIN, then the box grows downward, moving up only if it would pass the stage bottom.
+ * idle: the greeting. With a reply: cross-fades (FADE_MS) to the reply with a word-by-word highlight.
+ * Fluid: both start at the fluid maximum for the viewport (24 → 56px) and shrink until they fit the text slot
+ * (<TerminalBody text>); refitted on every resize. Only if it still does not fit at FONT_MIN does the slot scroll.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { TEXT_SHADOW, UPCOMING_COLOR } from '../lib/contrast'
-import { REPLY_BOX, FONT_MAX, LINE_HEIGHT, fitFontSize, boxTop } from '../lib/replyLayout'
+import { LINE_HEIGHT, FONT_MIN, fitFontSize, fluidMaxFont } from '../lib/replyLayout'
 
 export const FADE_MS = 250
 
-const TEXT_STYLE = {
-  fontFamily: '"Inter", system-ui, sans-serif',
-  fontWeight: 800,
-  color:      'white',
-  lineHeight: LINE_HEIGHT,
-  textAlign:  'center',
-  textShadow: TEXT_SHADOW,
-  margin:     0,
+const TEXT_STYLE = { lineHeight: LINE_HEIGHT, textShadow: TEXT_SHADOW }
+const LAYER = { position: 'absolute', inset: 0, transition: `opacity ${FADE_MS}ms ease` }
+
+/** Font size that makes `pRef`'s text fit `boxRef`, recomputed when the box resizes or `deps` change. */
+function useFitFont(boxRef, pRef, deps) {
+  const [size, setSize] = useState(() => fluidMaxFont(typeof window === 'undefined' ? 1194 : window.innerWidth))
+  const [overflow, setOverflow] = useState(false)
+  useLayoutEffect(() => {
+    const box = boxRef.current
+    const p = pRef.current
+    if (!box || !p) return
+    const measure = () => {
+      const max = fluidMaxFont(window.innerWidth)
+      const fits = (s) => {
+        p.style.fontSize = `${s}px`
+        return p.scrollHeight <= box.clientHeight + 1
+      }
+      const s = fitFontSize(fits, { max, min: Math.min(FONT_MIN, max) })
+      p.style.fontSize = `${s}px`
+      setOverflow(!fits(s))
+      p.style.fontSize = `${s}px`
+      setSize(s)
+    }
+    measure()
+    document.fonts?.ready.then(measure).catch(() => {})
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    ro?.observe(box)
+    window.addEventListener('resize', measure)
+    return () => {
+      ro?.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps)
+  return { size, overflow }
 }
 
 export default function ReplyText({ greeting, phase, reply, highlightIndex }) {
@@ -46,70 +72,36 @@ export default function ReplyText({ greeting, phase, reply, highlightIndex }) {
     return () => cancelAnimationFrame(raf)
   }, [reply, phase, highlightIndex])
 
-  /* ── Fit: shrink to ≤3 lines (min 32px), then grow; keep above the stage bottom ── */
-  const pRef = useRef(null)
-  const [fit, setFit] = useState({ id: null, fontSize: FONT_MAX, top: REPLY_BOX.top })
-  useLayoutEffect(() => {
-    const p = pRef.current
-    if (!shown || !p) return
-    const measure = () => {
-      const linesAt = (size) => {
-        p.style.fontSize = `${size}px`
-        return Math.round(p.offsetHeight / (size * LINE_HEIGHT))
-      }
-      const fontSize = fitFontSize(linesAt)
-      p.style.fontSize = `${fontSize}px`
-      setFit({ id: shown.id, fontSize, top: boxTop(p.offsetHeight) })
-    }
-    measure()
-    document.fonts?.ready.then(measure).catch(() => {})
-  }, [shown])
-
-  const replyVisible = !!reply
-  const fitted = fit.id === shown?.id
+  const greetBoxRef = useRef(null)
+  const greetRef = useRef(null)
+  const replyBoxRef = useRef(null)
+  const replyRef = useRef(null)
+  const greetFit = useFitFont(greetBoxRef, greetRef, [greeting])
+  const replyFit = useFitFont(replyBoxRef, replyRef, [shown?.id])
 
   return (
     <>
       {/* Greeting (idle only) */}
-      <div
-        style={{
-          position:   'absolute',
-          left:       REPLY_BOX.left,
-          top:        REPLY_BOX.top,
-          width:      REPLY_BOX.width,
-          opacity:    phase === 'idle' ? 1 : 0,
-          transition: `opacity ${FADE_MS}ms ease`,
-        }}
-        aria-hidden={phase !== 'idle'}
-      >
-        <p style={{ ...TEXT_STYLE, fontSize: FONT_MAX }}>{greeting}</p>
+      <div ref={greetBoxRef} style={{ ...LAYER, opacity: phase === 'idle' ? 1 : 0 }} aria-hidden={phase !== 'idle'}>
+        <p ref={greetRef} className="term-reply" style={{ ...TEXT_STYLE, fontSize: greetFit.size }}>{greeting}</p>
       </div>
 
-      {/* Reply (same box and style as the greeting) */}
+      {/* Reply (same slot and style as the greeting) */}
       {shown && (
         <div
+          ref={replyBoxRef}
           data-testid="reply"
-          style={{
-            position:   'absolute',
-            left:       REPLY_BOX.left,
-            top:        fitted ? fit.top : REPLY_BOX.top,
-            width:      REPLY_BOX.width,
-            opacity:    replyVisible && fitted ? 1 : 0,
-            transition: `opacity ${FADE_MS}ms ease`,
-          }}
+          style={{ ...LAYER, opacity: reply ? 1 : 0, overflowY: replyFit.overflow ? 'auto' : 'hidden' }}
         >
           <p
             key={shown.id}
-            ref={pRef}
-            className="reply-in"
-            style={{ ...TEXT_STYLE, position: 'relative', fontSize: fitted ? fit.fontSize : FONT_MAX }}
+            ref={replyRef}
+            className="term-reply reply-in"
+            style={{ ...TEXT_STYLE, fontSize: replyFit.size }}
             aria-live="polite"
           >
             {shown.words.map((word, i) => (
-              <span
-                key={i}
-                style={{ color: i <= hi ? '#ffffff' : UPCOMING_COLOR, transition: 'color 0.15s ease' }}
-              >
+              <span key={i} style={{ color: i <= hi ? '#ffffff' : UPCOMING_COLOR, transition: 'color 0.15s ease' }}>
                 {word}{' '}
               </span>
             ))}

@@ -1,10 +1,8 @@
 /**
  * Context — daily + permanent notes the tablet's LLM uses (Figma 60:60, iPhone 17 402×874).
  *
- *   Cards:  365 wide (18 / 19 side margins), #043961, radius 25, 28px apart, first 30px below the header
- *   Title:  Inter Bold 13px, 24px in, 14px from the top
- *   Items:  Inter 13px white (daily Regular, permanent Light), 293 wide, trash icon (Figma 107:1627) on the right
- *   Input:  white pill 255×43, radius 100, placeholder Inter Light 13px black; plus-circle (Figma 107:1634) to the right
+ *   Two cards (Daily, Permanent), side by side from 768px. Items with pen + trash (Figma 107:1627), white pill input
+ *   with plus-circle (Figma 107:1634). Figma sizes are a reference; text uses the portal type scale.
  *
  * Data: GET /api/context-items (today's daily + permanent), POST / DELETE with optimistic update + rollback.
  * Every mutation makes the server push context:sync to the paired terminal.
@@ -106,12 +104,14 @@ export default function Context() {
   }
 
   return (
-    <div className="px-[18px] pt-[30px] text-[13px] text-white">
+    <div className="text-white">
+      <h1 className="text-title mb-4">{t('portal.tabs.context')}</h1>
       <PortalToast message={toast} />
       {loading && !data && <Loading />}
       {error && !loading && <LoadError onRetry={retry} />}
       {data && !error && (
-        <div className="flex flex-col gap-[28px]">
+        /* The two lists side by side from 768px */
+        <div className="grid gap-6 md:grid-cols-2 md:items-start">
           {SCOPES.map(scope => (
             <ContextCard
               key={scope}
@@ -164,23 +164,21 @@ function ContextCard({ scope, items, onAdd, onEdit, onDelete }) {
     if (result === 'unsafe') setInputError(t('portal.safety.unsafe'))
   }
 
-  const itemWeight = scope === 'daily' ? 'text-body-regular' : 'text-body-light'
 
   return (
-    <section className={`${CARD} pt-[14px] pb-[15px] pl-[15px] pr-[16px]`} aria-labelledby={`${inputId}-title`}>
-      <h2 id={`${inputId}-title`} className="text-title-bold pl-[9px] leading-normal">
+    <section className={`${CARD} p-4`} aria-labelledby={`${inputId}-title`}>
+      <h2 id={`${inputId}-title`} className="text-card">
         {t(`portal.context.${scope}.title`)}
       </h2>
 
-      <ul className="mt-[8px] flex flex-col gap-[4px] pl-[9px]">
+      <ul className="mt-2 flex flex-col gap-1">
         {items.length === 0 && (
-          <li className="py-[6px]"><Empty>{t(`portal.context.${scope}.empty`)}</Empty></li>
+          <li className="py-2"><Empty>{t(`portal.context.${scope}.empty`)}</Empty></li>
         )}
         {items.map(item => (
           <ContextItemRow
             key={item.id}
             item={item}
-            itemWeight={itemWeight}
             confirming={confirmId === item.id}
             onConfirm={() => setConfirmId(item.id)}
             onCancelConfirm={() => setConfirmId(null)}
@@ -190,8 +188,8 @@ function ContextCard({ scope, items, onAdd, onEdit, onDelete }) {
         ))}
       </ul>
 
-      <form onSubmit={submit} noValidate className="mt-[22px]">
-        <div className="flex items-center gap-[12px]">
+      <form onSubmit={submit} noValidate className="mt-4">
+        <div className="flex items-center gap-3">
           <label htmlFor={inputId} className="sr-only">{t(`portal.context.${scope}.placeholder`)}</label>
           <input
             id={inputId}
@@ -202,8 +200,8 @@ function ContextCard({ scope, items, onAdd, onEdit, onDelete }) {
             placeholder={t(`portal.context.${scope}.placeholder`)}
             aria-invalid={!!inputError || tooLong}
             aria-describedby={errorId}
-            className="text-body-light h-[43px] min-w-0 flex-1 rounded-[100px] bg-white px-[29px] text-[13px] text-black
-                       outline-none placeholder:text-black focus-visible:ring-2 focus-visible:ring-[#54aed3]"
+            className="text-body h-[44px] min-w-0 flex-1 rounded-full bg-white px-4 text-black
+                       outline-none placeholder:text-black/60 focus-visible:ring-2 focus-visible:ring-[#54aed3]"
           />
           <button
             type="submit"
@@ -216,12 +214,12 @@ function ContextCard({ scope, items, onAdd, onEdit, onDelete }) {
               : <img src={plusCircleIcon} alt="" width={20.6667} height={20.6667} />}
           </button>
         </div>
-        <div id={errorId} aria-live="polite" className="flex min-h-[18px] justify-between gap-2 px-[14px] pt-[4px] text-[12px]">
-          <span className="text-body-medium text-[#ffb4b4]">
+        <div id={errorId} aria-live="polite" className="text-caption flex min-h-[18px] justify-between gap-2 px-4 pt-1">
+          <span className="text-danger-soft">
             {inputError || (tooLong ? t('portal.context.errors.tooLong', { max: MAX_CHARS }) : '')}
           </span>
           {trimmed.length >= COUNTER_FROM && (
-            <span className={`text-body-medium shrink-0 ${tooLong ? 'text-[#ffb4b4]' : 'text-intacta-text'}`}>
+            <span className={`shrink-0 tabular-nums ${tooLong ? 'text-danger-soft' : 'text-muted'}`}>
               {trimmed.length}/{MAX_CHARS}
             </span>
           )}
@@ -231,7 +229,7 @@ function ContextCard({ scope, items, onAdd, onEdit, onDelete }) {
   )
 }
 
-function ContextItemRow({ item, itemWeight, confirming, onConfirm, onCancelConfirm, onDelete, onEdit }) {
+function ContextItemRow({ item, confirming, onConfirm, onCancelConfirm, onDelete, onEdit }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [draft,   setDraft]   = useState(item.text)
@@ -256,7 +254,7 @@ function ContextItemRow({ item, itemWeight, confirming, onConfirm, onCancelConfi
   if (editing) {
     return (
       <li>
-        <form onSubmit={save} noValidate className="flex flex-col gap-[6px] py-[4px]">
+        <form onSubmit={save} noValidate className="flex flex-col gap-2 py-1">
           <label htmlFor={inputId} className="sr-only">{t('portal.safety.editItem', { text: item.text })}</label>
           <input
             id={inputId}
@@ -265,21 +263,21 @@ function ContextItemRow({ item, itemWeight, confirming, onConfirm, onCancelConfi
             aria-invalid={!!error}
             aria-describedby={errorId}
             autoFocus
-            className="text-body-regular h-[44px] w-full rounded-[100px] bg-white px-[18px] text-[15px] text-black outline-none focus-visible:ring-2 focus-visible:ring-[#54aed3]"
+            className="text-body h-[44px] w-full rounded-full bg-white px-4 text-black outline-none focus-visible:ring-2 focus-visible:ring-[#54aed3]"
           />
-          <p id={errorId} aria-live="polite" className="text-body-medium px-[6px] text-[12px] text-[#ffb4b4]">{error}</p>
+          <p id={errorId} aria-live="polite" className="text-caption px-2 text-danger-soft">{error}</p>
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={() => { setEditing(false); setDraft(item.text); setError(null) }}
-              className="text-body-medium min-h-[44px] rounded-full px-3 text-[13px] text-intacta-text"
+              className="text-body min-h-[44px] rounded-full px-3 text-muted"
             >
               {t('portal.safety.cancel')}
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="text-title-semibold min-h-[44px] rounded-full bg-white px-4 text-[13px] text-[#043961] disabled:opacity-50"
+              className="text-body min-h-[44px] rounded-full bg-white px-4 font-semibold text-[#043961] disabled:opacity-50"
             >
               {saving ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : t('portal.safety.save')}
             </button>
@@ -291,14 +289,14 @@ function ContextItemRow({ item, itemWeight, confirming, onConfirm, onCancelConfi
 
   return (
     <li className="flex items-start gap-2">
-      <div className="min-w-0 flex-1 py-[6px]">
-        <p className={`${itemWeight} whitespace-pre-line break-words leading-normal ${item.pending ? 'opacity-60' : ''}`}>
+      <div className="min-w-0 flex-1 py-2">
+        <p className={`text-body whitespace-pre-line break-words ${item.pending ? 'opacity-60' : ''}`}>
           {item.text}
         </p>
         {blocked && (
-          <p className="mt-[4px] flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
-            <span className="text-title-semibold rounded-full bg-[#dc2626] px-2 py-[2px] text-white">{t('portal.safety.blocked')}</span>
-            <span className="text-body-medium text-[#ffb4b4]">{t('portal.safety.blockedHint')}</span>
+          <p className="text-caption mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="rounded-full bg-[#dc2626] px-2 py-[2px] text-white">{t('portal.safety.blocked')}</span>
+            <span className="text-danger-soft">{t('portal.safety.blockedHint')}</span>
           </p>
         )}
       </div>
@@ -307,14 +305,14 @@ function ContextItemRow({ item, itemWeight, confirming, onConfirm, onCancelConfi
           <button
             type="button"
             onClick={onDelete}
-            className="text-title-semibold min-h-[32px] rounded-full bg-[#dc2626] px-3 text-[12px] text-white"
+            className="text-secondary min-h-[44px] rounded-full bg-[#dc2626] px-3 font-semibold text-white"
           >
             {t('portal.context.delete')}
           </button>
           <button
             type="button"
             onClick={onCancelConfirm}
-            className="text-body-medium min-h-[32px] rounded-full px-2 text-[12px] text-intacta-text"
+            className="text-secondary min-h-[44px] rounded-full px-2 text-muted"
           >
             {t('portal.common.cancel')}
           </button>
@@ -326,7 +324,7 @@ function ContextItemRow({ item, itemWeight, confirming, onConfirm, onCancelConfi
             disabled={item.pending}
             onClick={() => { setDraft(item.text); setEditing(true) }}
             aria-label={t('portal.safety.editItem', { text: item.text })}
-            className="flex h-[32px] w-[32px] items-center justify-center rounded-full disabled:opacity-40"
+            className="flex h-[44px] w-[44px] items-center justify-center rounded-full disabled:opacity-40"
           >
             <img src={penIcon} alt="" width={14.9333} height={14.9333} />
           </button>
@@ -335,7 +333,7 @@ function ContextItemRow({ item, itemWeight, confirming, onConfirm, onCancelConfi
             disabled={item.pending}
             onClick={onConfirm}
             aria-label={t('portal.context.deleteItem', { text: item.text })}
-            className="flex h-[32px] w-[32px] items-center justify-center rounded-full disabled:opacity-40"
+            className="flex h-[44px] w-[44px] items-center justify-center rounded-full disabled:opacity-40"
           >
             <img src={trashIcon} alt="" width={13.6} height={14.9333} />
           </button>
