@@ -880,6 +880,33 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
   classifier error or timeout never reaches them as a throw: it is swallowed in `contentSafety.classify()` and becomes
   "allowed".
 
+### Step 2: semantic classifier replaces the keyword rules (DONE, committed `8c97b6a`)
+- `contentSafety.js`: Tier 1 word lists deleted. Only hygiene (NFKC, control/invisible chars, whitespace, 300 max), then a
+  Gemini REST call (temperature 0, `responseSchema` JSON: decision, category, addressed_to_patient,
+  patient_distress_0_to_10, spoken_aloud_ok, reason_short). Rubric + 12 few-shot examples (formal/slang/misspelled ID, EN,
+  benign near-misses such as "listrik mati"). None of the test-set sentences are in the prompt. Verdict cache (sha256 of
+  text + kind + language + `SAFETY_VERSION`=2). Decision: block on decision=block or distress ≥ 4; spoken kinds also on
+  spoken_aloud_ok=false or sensitive_fact; context + sensitive_fact (not addressed to the patient) → saved `sensitive=true`.
+- Model choice (models listed via the API for this key): `gemini-3.8-flash` (strongest) never answered within 20 s or
+  returned 503 high demand; `gemini-3.7-flash` 503 / no answer; `gemini-2.5-flash` 404; `gemini-3.6-flash` answered every
+  paced probe (1.6-7.4 s) → **default `gemini-3.6-flash`** (env `GEMINI_SAFETY_MODEL`). `thinkingLevel: minimal` (3.7+
+  reject it; they get `low`). LangChain 0.1.12 drops `thinkingConfig`, so the classifier calls the REST API with `fetch`.
+- **QUOTA BLOCKER**: this key is on the free tier: `GenerateRequestsPerDayPerProjectPerModel-FreeTier = 20` for 3.6-flash
+  and 3.5-flash. Both were exhausted today by the probes/live run (reset in ~15 h). With fail-closed, every save after the
+  20th check of the day gets 503. Needs billing (or another key) before the demo.
+- Live sample before the quota ran out (3.6-flash, kind=context): "besok engkau mati", "kamu bakal mati besok",
+  "lu bakal mampus besok", "besok malaikat maut jemput kamu", "bsok kmu akan mti" → all blocked (distress 9-10, 2.2-3.1 s).
+- Migration `008_safety_verdicts.sql` (NOT yet run): `safety_version`, `safety_verdict`, `safety_score` on context_items +
+  routines, `context_items.sensitive`. Gate stores the verdict with the row on create/update (`safetyGate.screenOrRefuse`).
+- `services/storedSafety.js`: a row is usable only with the current version + allow; stale rows re-screened (portal list
+  waits; snapshot / scheduler / upcoming routines re-screen in the background and leave them out meanwhile).
+- Sensitive notes: never in `context:sync` / `GET /api/device/context`; passed to the reply prompt as a `<<<PRIVATE` block
+  ("never mention or hint at them; if asked, gently turn to comfort without revealing it"). Portal: "Private note: the
+  assistant will never mention this" label (Context screen).
+- **Removed with the lists**: the reply-side word check in `llm/chain.js` (hospital/death/threat words in AI replies). Per
+  the brief, replies are not classified (latency); they rely on the reply validator + prompt + pre-screened notes. The
+  ladder test for "He died in 2015." was deleted. Flagged.
+
 ---
 
 ## Known bugs / open items
