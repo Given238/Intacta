@@ -279,6 +279,7 @@
       "blocked": "Blocked for safety",
       "blockedHint": "Never sent to the tablet. Edit or delete it.",
       "rateLimited": "Too many messages in a minute. Please wait a moment.",
+      "private": "Private note: the assistant will never mention this",
       "edit": "Edit",
       "editItem": "Edit note: {{text}}",
       "save": "Save",

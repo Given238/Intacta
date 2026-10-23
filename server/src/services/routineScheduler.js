@@ -13,13 +13,13 @@
  *                        without a "missed" log: nothing could have delivered it
  * "Today", the weekday and the minute always come from Intl with timeZone Asia/Jakarta, never the
  * server's local time. Marking is an atomic claim, so a routine can never fire twice on one day.
- * Every routine is re-checked with the Tier 1 safety rules before it is considered: a failing one is flagged
- * (blocked_category) and never fired, spoken or logged as missed.
+ * Every routine needs a stored safety verdict for the current SAFETY_VERSION (storedSafety.js) before it is considered:
+ * a blocked or not-yet-screened one is never fired, spoken or logged as missed.
  */
 
 const { query } = require('../db/query');
 const { logInteraction } = require('../llm/interactionLogger');
-const { checkTier1 } = require('./contentSafety');
+const { isUsable, withPending, rescreenRoutine, ensureScreened } = require('./storedSafety');
 
 const TIME_ZONE = 'Asia/Jakarta';
 const TICK_MS = 30_000;
@@ -101,26 +101,14 @@ function scriptOf(r) {
 }
 
 /**
- * Tier 1 safety re-check of a stored routine's spoken fields; persists a change in blocked_category.
- * Returns the routine with blocked_category set (null when safe).
+ * Brings a stored routine's safety verdict up to the current SAFETY_VERSION (classifier re-screen of its spoken
+ * fields, stored in safety_* / blocked_category). wait=false re-screens in the background and returns the row as is.
+ * Returns the routine with safety_pending set; only isUsable(routine) ones may fire or reach a prompt.
  */
-async function recheckRoutine(r) {
+async function recheckRoutine(r, { wait = true } = {}) {
   if (!r) return r;
-  let blocked = null;
-  for (const text of [r.title, r.audio_script, r.display_text]) {
-    if (typeof text !== 'string' || !text.trim()) continue;
-    const res = checkTier1(text, { kind: 'routine' });
-    if (!res.ok) { blocked = res.category; break; }
-  }
-  if ((r.blocked_category ?? null) !== blocked) {
-    try {
-      await query('UPDATE routines SET blocked_category = $1 WHERE id = $2', [blocked, r.id]);
-      if (blocked) console.warn(`[safety] routine ${r.id} blocked on re-check (${blocked})`);
-    } catch (err) {
-      console.error('[safety] could not store routine blocked_category:', err.message);
-    }
-  }
-  return { ...r, blocked_category: blocked };
+  const [checked] = await ensureScreened([r], rescreenRoutine, { wait });
+  return withPending(checked);
 }
 
 /** Is a terminal socket (device:* room) in this patient's room? */
@@ -181,7 +169,7 @@ async function runTick(io, { now = new Date(), patientId = null, startedAt = sch
   const started = startedAt ? jakartaClock(startedAt) : null;
   const params = [clock.dateKey];
   let sql = `SELECT id, patient_id, title, days, trigger_time, category, audio_script, display_text, is_active, last_fired_on,
-                    blocked_category
+                    blocked_category, safety_version, safety_verdict
              FROM routines
              WHERE is_active = true AND (last_fired_on IS NULL OR last_fired_on <> $1::date)`;
   if (patientId) {
@@ -192,9 +180,9 @@ async function runTick(io, { now = new Date(), patientId = null, startedAt = sch
   const result = { delivered: [], missed: [], waiting: [], stale: [], blocked: [] };
   const online = new Map();
   for (const row of rows) {
-    const r = await recheckRoutine(row);
-    if (r.blocked_category) {
-      result.blocked.push(r.id);
+    const r = await recheckRoutine(row, { wait: false }); // the tick never waits for the classifier
+    if (!isUsable(r)) {
+      result.blocked.push(r.id); // blocked, or not screened yet (it fires on a later tick once allowed)
       continue;
     }
     const action = classifyRoutine(r, clock, { started });

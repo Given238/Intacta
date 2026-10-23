@@ -26,6 +26,7 @@ const devicesController  = require('../controllers/devicesController');
 const setupSocket        = require('../socket');
 const { handleDeviceStatus } = setupSocket;
 const respondRouter      = require('../routes/respond');
+const { SCREENED } = require('./safetyTestUtils');
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
 
@@ -116,7 +117,7 @@ describe('Socket.IO dual auth and room joins', () => {
     routeQueries([
       [/FROM devices d/,          [{ device_id: 10, patient_id: 5, language: 'id' }]],
       [/SELECT name, language/,   [{ name: 'Eleanor', language: 'id' }]],
-      [/FROM context_items/,      [{ id: 1, scope: 'daily', text: 'Soup at 1' }]],
+      [/FROM context_items/,      [{ id: 1, scope: 'daily', text: 'Soup at 1', ...SCREENED }]],
       [/patient_settings/,        [{ max_speech_seconds: 8 }]],
     ]);
     const socket = makeSocket({ deviceToken: 'tok' });
@@ -286,8 +287,8 @@ describe('GET /api/device/context', () => {
     routeQueries([
       [/SELECT name, language/, [{ name: 'Eleanor', language: 'en' }]],
       [/FROM context_items/, [
-        { id: 1, scope: 'daily', text: 'Soup at 1' },
-        { id: 2, scope: 'permanent', text: 'Depe the dog' },
+        { id: 1, scope: 'daily', text: 'Soup at 1', ...SCREENED },
+        { id: 2, scope: 'permanent', text: 'Depe the dog', ...SCREENED },
       ]],
     ]);
     const res = makeRes();

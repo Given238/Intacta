@@ -10,6 +10,7 @@ const { query: mockQuery } = require('../db/query');
 const { logInteraction } = require('../llm/interactionLogger');
 const sched = require('../services/routineScheduler');
 const { createRoutineSchema, updateRoutineSchema } = require('../validators');
+const { SCREENED } = require('./safetyTestUtils');
 
 // 2026-10-11 is a Sunday. Jakarta = UTC+7 (no DST).
 const utc = (iso) => new Date(iso);
@@ -102,9 +103,9 @@ describe('runTick', () => {
   let io;
 
   const ROUTINES = [
-    { id: 11, patient_id: 5, title: 'Breakfast', days: [1], trigger_time: '08:00:00', category: 'meal', audio_script: 'Time for breakfast.', display_text: null, is_active: true, last_fired_on: null },
-    { id: 12, patient_id: 5, title: 'Pills', days: [1], trigger_time: '07:40:00', category: 'medication', audio_script: 'Time for your pills.', display_text: null, is_active: true, last_fired_on: null },
-    { id: 13, patient_id: 5, title: 'Walk', days: [1], trigger_time: '09:00:00', category: 'other', audio_script: 'Walk.', display_text: null, is_active: true, last_fired_on: null },
+    { id: 11, patient_id: 5, title: 'Breakfast', days: [1], trigger_time: '08:00:00', category: 'meal', audio_script: 'Time for breakfast.', display_text: null, is_active: true, last_fired_on: null, ...SCREENED },
+    { id: 12, patient_id: 5, title: 'Pills', days: [1], trigger_time: '07:40:00', category: 'medication', audio_script: 'Time for your pills.', display_text: null, is_active: true, last_fired_on: null, ...SCREENED },
+    { id: 13, patient_id: 5, title: 'Walk', days: [1], trigger_time: '09:00:00', category: 'other', audio_script: 'Walk.', display_text: null, is_active: true, last_fired_on: null, ...SCREENED },
   ];
 
   function fakeIo(onlinePatients) {

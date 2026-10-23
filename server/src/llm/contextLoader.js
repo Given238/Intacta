@@ -2,6 +2,7 @@ const { query } = require('../db/query');
 const { loadContextSnapshot } = require('../services/contextService');
 const { getSettings } = require('../services/settingsService');
 const { jakartaClock, timeToMinutes, recheckRoutine } = require('../services/routineScheduler');
+const { isUsable } = require('../services/storedSafety');
 
 const RECENT_LIMIT = 3;
 const RECENT_WINDOW_MIN = 10;
@@ -10,7 +11,7 @@ const RECENT_WINDOW_MIN = 10;
  * Everything the LLM pipeline needs for one patient: language, today's daily
  * items, permanent items and max_speech_seconds. Returns null when the patient does not exist.
  * strict_validation is deliberately not loaded: guardrails are always enforced.
- * Blocked (unsafe) context items are already left out by the snapshot.
+ * Blocked and unscreened context items are already left out by the snapshot; sensitive notes come apart.
  */
 async function loadPatientContext(patientId) {
   const [snapshot, settings] = await Promise.all([
@@ -22,6 +23,7 @@ async function loadPatientContext(patientId) {
     language:           snapshot.language,
     daily_items:        snapshot.daily.map(i => i.text),
     permanent_items:    snapshot.permanent.map(i => i.text),
+    sensitive_items:    snapshot.sensitive.map(i => i.text),
     max_speech_seconds: settings ? settings.max_speech_seconds : null,
   };
 }
@@ -48,14 +50,14 @@ async function loadRecentExchanges(patientId) {
 async function loadUpcomingRoutines(patientId, now = new Date()) {
   const clock = jakartaClock(now);
   const result = await query(
-    `SELECT id, title, days, trigger_time, category, audio_script, display_text, blocked_category
+    `SELECT id, title, days, trigger_time, category, audio_script, display_text, blocked_category, safety_version, safety_verdict
      FROM routines WHERE patient_id = $1 AND is_active = true ORDER BY trigger_time ASC`,
     [patientId]
   );
   const upcoming = [];
   for (const row of result.rows) {
-    const r = await recheckRoutine(row);
-    if (r.blocked_category) continue;
+    const r = await recheckRoutine(row, { wait: false });
+    if (!isUsable(r)) continue;
     const days = Array.isArray(r.days) && r.days.length ? r.days.map(Number) : [0, 1, 2, 3, 4, 5, 6];
     if (!days.includes(clock.weekday)) continue;
     const at = timeToMinutes(r.trigger_time);

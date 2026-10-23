@@ -13,7 +13,7 @@ const { buildSettingsSync, getSettings } = require('../services/settingsService'
 const { logAudit } = require('../services/audit');
 const { logInteraction } = require('../llm/interactionLogger');
 const { deliverPending } = require('../services/routineScheduler');
-const { blockIfUnsafe, UNSAFE_ERROR } = require('../services/safetyGate');
+const { screenOrRefuse } = require('../services/safetyGate');
 
 function setupSocket(io) {
   // ── Dual-auth handshake middleware ─────────────────────────────────────────
@@ -170,7 +170,8 @@ function takeBroadcastSlot(caregiverId, now = Date.now()) {
 }
 
 /** caregiver → server → terminal: broadcast:message { patientId, text } → { text, created_at }
- *  Safety-checked before it is logged or emitted; unsafe → ack {success:false, code:'unsafe_content', category}. */
+ *  Safety-checked before it is logged or emitted; unsafe → ack {success:false, code:'unsafe_content', category};
+ *  classifier unavailable → ack {success:false, code:'safety_unavailable'} (fail closed, nothing sent). */
 function handleBroadcast(io, socket) {
   return async (data, ack) => {
     const { patientId, text } = data || {};
@@ -188,9 +189,9 @@ function handleBroadcast(io, socket) {
         return;
       }
       const language = (await loadContextSnapshot(patientId))?.language;
-      const blocked = await blockIfUnsafe({ texts: [clean], kind: 'broadcast', language, caregiverId: socket.caregiverId });
-      if (blocked) {
-        if (ack) ack({ success: false, code: 'unsafe_content', category: blocked.category, error: UNSAFE_ERROR });
+      const gate = await screenOrRefuse({ texts: [clean], kind: 'broadcast', language, caregiverId: socket.caregiverId });
+      if (!gate.ok) {
+        if (ack) ack({ success: false, ...gate.body });
         return;
       }
       const aiResponse = { text: clean, parts: [clean] };
@@ -228,9 +229,9 @@ function handleVoiceTest(io, socket) {
       ]);
       const language = snapshot?.language || 'en';
       const text = VOICE_TEST_TEXT[language] || VOICE_TEST_TEXT.en;
-      const blocked = await blockIfUnsafe({ texts: [text], kind: 'voice_test', language, caregiverId: socket.caregiverId });
-      if (blocked) {
-        if (ack) ack({ success: false, code: 'unsafe_content', category: blocked.category, error: UNSAFE_ERROR });
+      const gate = await screenOrRefuse({ texts: [text], kind: 'voice_test', language, caregiverId: socket.caregiverId });
+      if (!gate.ok) {
+        if (ack) ack({ success: false, ...gate.body });
         return;
       }
       io.to(`patient:${patientId}`).emit('voice:test', {

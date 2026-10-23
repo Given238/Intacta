@@ -4,8 +4,9 @@
  *   2. one retry with the SHORT prompt and the rejection reason (RETRY_TIMEOUT_MS = 2 s); skipped for
  *      non-retryable API errors (400/401/403/404)
  *   3. static fallback assembled from the situation library (fallbacks.js), marked _fallback: true
- * Every reply is validated (guardrails, per-patient word cap, food/drink rule) and safety-checked.
- * Every fallback is logged with a reason (timeout | api_error:<status> | validation:<rule> | safety | empty) and latency,
+ * Every reply is validated (guardrails, per-patient word cap, food/drink rule). Replies are not run through the safety
+ * classifier (latency): the notes in the prompt are pre-screened (stored verdicts) and the prompt forbids harm.
+ * Every fallback is logged with a reason (timeout | api_error:<status> | validation:<rule> | empty) and latency,
  * and every result is recorded in fallbackStats (GET /api/health/llm).
  */
 
@@ -13,7 +14,6 @@ const { getStructuredModel } = require('./model');
 const { buildPrompt, buildShortPrompt, wordCapFor } = require('./prompts');
 const { validateResponse, countWords, describeRule } = require('./validator');
 const { getFallback, mentionsHungerOrThirst } = require('./fallbacks');
-const { checkTier1 } = require('../services/contentSafety');
 const stats = require('./fallbackStats');
 
 const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 2500;
@@ -123,6 +123,7 @@ async function attempt(prompt, { language, maxWords, foodOk, transcript, timeout
  * @param {string}   input.transcript
  * @param {string[]} input.daily_items        today's daily context items
  * @param {string[]} input.permanent_items    permanent context items
+ * @param {string[]} [input.sensitive_items]  private notes (sensitive_fact): never mentioned or hinted at
  * @param {number}   input.max_speech_seconds word cap = min(25, round(s * 2.5)), never below 15; 0 → 25
  * @param {string}   input.timeOfDay          'HH:MM' (Asia/Jakarta)
  * @param {string}   input.language           'id' | 'en'
@@ -133,13 +134,13 @@ async function attempt(prompt, { language, maxWords, foodOk, transcript, timeout
  */
 async function runChain(input) {
   const {
-    transcript, daily_items, permanent_items, max_speech_seconds, timeOfDay, language = 'en',
+    transcript, daily_items, permanent_items, sensitive_items = [], max_speech_seconds, timeOfDay, language = 'en',
     recent = [], upcoming_routines = [], patientId = null,
   } = input;
   const maxWords = wordCapFor(max_speech_seconds);
   const foodOk = foodAllowed(transcript, upcoming_routines, timeOfDay);
   const started = Date.now();
-  const promptInput = { transcript, daily_items, permanent_items, timeOfDay, language, maxWords, recent, upcoming_routines, food_ok: foodOk };
+  const promptInput = { transcript, daily_items, permanent_items, sensitive_items, timeOfDay, language, maxWords, recent, upcoming_routines, food_ok: foodOk };
   const recentReplies = recent.map(r => r.reply).filter(Boolean);
 
   const fallBack = (reason, err) => {
@@ -213,10 +214,6 @@ async function callLLM(prompt, language, maxWords, signal, { foodOk = true, tran
   if (contradictsTime(transcript, text, language)) {
     throw rejection('validation:time_contradiction', 'reply names a different part of the day than the patient', 'time_contradiction');
   }
-
-  // Content safety on the way out (A4): threats, distressing facts (death, illness, hospital) → fallback path
-  const safety = checkTier1(text, { kind: 'reply' });
-  if (!safety.ok) throw rejection('safety', `unsafe reply (${safety.category})`, 'safety');
 
   return { text, parts, _fallback: false, _theme: null, _reason: null };
 }

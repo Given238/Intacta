@@ -1,11 +1,10 @@
 /**
  * CLI: npm run safety:try "<text>" -- --kind context|broadcast|routine|voice_test|reply --lang id|en
- * Diagnoses one content safety decision: which tier decided, the raw classifier response,
- * any classifier error or timeout, and the final gate result. Spends one or two Gemini calls.
+ * Diagnoses one content safety decision: the model, the raw classifier verdict (no timeout), any classifier
+ * error, and the final gate result (4 s timeout, one retry, fail closed). Spends one to three Gemini calls.
  */
 
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
-const { z } = require('zod');
 const safety = require('../services/contentSafety');
 
 const args = process.argv.slice(2);
@@ -27,35 +26,23 @@ const redact = (s) => {
   return key ? String(s).split(key).join('[redacted]') : String(s);
 };
 
-async function rawClassifier() {
-  const { ChatGoogleGenerativeAI } = require('@langchain/google-genai');
-  const model = new ChatGoogleGenerativeAI({
-    model: process.env.GEMINI_SAFETY_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
-    apiKey: process.env.GEMINI_API_KEY,
-    temperature: 0,
-    maxOutputTokens: 64,
-  });
-  const schema = z.object({ safe: z.boolean(), category: z.enum(safety.CATEGORIES), confidence: z.number().min(0).max(1) });
-  const start = Date.now();
-  try {
-    const out = await model.withStructuredOutput(schema, { includeRaw: true })
-      .invoke(safety.classifierPrompt(text, { language, kind }));
-    return { ms: Date.now() - start, parsed: out.parsed, tool_calls: out.raw?.tool_calls };
-  } catch (err) {
-    return { ms: Date.now() - start, error: redact(err.message).slice(0, 300) };
-  }
-}
-
 (async () => {
-  console.log('model:', process.env.GEMINI_SAFETY_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
-    '| key set:', Boolean(process.env.GEMINI_API_KEY), '| kind:', kind, '| lang:', language);
-  console.log('tier 1:', JSON.stringify(safety.checkTier1(text, { kind })));
-  const raw = await rawClassifier();
-  console.log(`raw classifier, no timeout (${raw.ms} ms):`, JSON.stringify(raw.error ? { error: raw.error } : raw.parsed),
-    raw.tool_calls ? `| tool_calls: ${JSON.stringify(raw.tool_calls)}` : '');
-  console.log(`gate timeout: ${safety.CLASSIFIER_TIMEOUT_MS} ms`);
-  const start = Date.now();
-  const final = await safety.checkPatientFacingText(text, { language, kind });
-  const decidedBy = final.reason === 'classifier' ? 'tier 2 (classifier)' : final.ok ? 'tier 1 + tier 2 pass, or tier 1 alone after a classifier failure (see [safety] warning above)' : 'tier 1';
-  console.log(`final (${Date.now() - start} ms):`, JSON.stringify(final), '| decided by:', decidedBy);
+  console.log('model:', safety.safetyModel(), '| key set:', Boolean(process.env.GEMINI_API_KEY),
+    '| kind:', kind, '| lang:', language, '| safety_version:', safety.SAFETY_VERSION);
+  const clean = safety.sanitize(text);
+  let start = Date.now();
+  try {
+    const raw = await safety.geminiClassifier(clean, { language, kind }, undefined);
+    console.log(`raw classifier, no timeout (${Date.now() - start} ms):`, JSON.stringify(raw));
+    console.log('decision rule:', JSON.stringify((({ verdict: _v, ...r }) => r)(safety.decide(raw, kind))));
+  } catch (err) {
+    console.log(`raw classifier ERROR (${Date.now() - start} ms):`, redact(err.message).slice(0, 300));
+  }
+  start = Date.now();
+  try {
+    const final = await safety.checkPatientFacingText(text, { language, kind });
+    console.log(`gate (${Date.now() - start} ms, timeout ${safety.CLASSIFIER_TIMEOUT_MS} ms × 2):`, JSON.stringify(final));
+  } catch (err) {
+    console.log(`gate (${Date.now() - start} ms): REFUSED, ${err.code || err.name}: ${redact(err.message).slice(0, 200)}`);
+  }
 })();

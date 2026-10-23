@@ -8,7 +8,8 @@
  * Every mutation makes the server push context:sync to the paired terminal.
  * Safety: the server refuses text that could frighten the patient (422 unsafe_content) → inline message, text kept.
  * Stored items that fail a re-check come back with blocked_category: shown with a red "Blocked for safety" label,
- * never sent to the tablet, still editable (PUT) and deletable.
+ * never sent to the tablet, still editable (PUT) and deletable. A distressing but factual note (sensitive) is kept as
+ * background with a small "Private note" label: the assistant never mentions it.
  */
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -298,6 +299,9 @@ function ContextItemRow({ item, confirming, onConfirm, onCancelConfirm, onDelete
             <span className="rounded-full bg-[#dc2626] px-2 py-[2px] text-white">{t('portal.safety.blocked')}</span>
             <span className="text-danger-soft">{t('portal.safety.blockedHint')}</span>
           </p>
+        )}
+        {!blocked && item.sensitive && (
+          <p className="text-caption mt-1 text-muted">{t('portal.safety.private')}</p>
         )}
       </div>
       {confirming ? (

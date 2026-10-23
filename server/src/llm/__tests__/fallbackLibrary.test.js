@@ -1,12 +1,11 @@
 /**
  * fallbackLibrary.test.js — the static fallback library (last rung of the reply ladder).
- * Right category, no repeats across the last 3 replies, every reply passes the validator and the safety check,
+ * Right category, no repeats across the last 3 replies, every reply passes the validator,
  * food/drink only in the hungry/thirsty categories, the patient's word cap is honoured.
  */
 
 const { getFallback, detectIntent, LIBRARY, CATEGORIES, resetHistory } = require('../fallbacks');
 const { validateResponse, countWords } = require('../validator');
-const { checkTier1 } = require('../../services/contentSafety');
 const { FOOD_WORDS } = require('../chain');
 const { UTTERANCES } = require('../benchUtterances');
 
@@ -27,11 +26,10 @@ describe('intent detection', () => {
 });
 
 describe('every reply obeys the guardrails', () => {
-  it.each(CATEGORIES.flatMap(c => [[c, 'id'], [c, 'en']]))('%s / %s: all 64 combinations validate and are safe', (category, lang) => {
+  it.each(CATEGORIES.flatMap(c => [[c, 'id'], [c, 'en']]))('%s / %s: all 64 combinations validate', (category, lang) => {
     const set = LIBRARY[category][lang];
     for (const v of set.validate) for (const r of set.reassure) for (const d of set.redirect) {
       expect(validateResponse({ validate: v, reassure: r, redirect: d }, lang)).toEqual({ valid: true });
-      expect(checkTier1(`${v} ${r} ${d}`, { kind: 'reply' }).ok).toBe(true);
     }
   });
 

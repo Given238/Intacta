@@ -2,7 +2,7 @@
  * fallbackStats.js — in-memory record of LLM replies for observability (no transcripts, no reply text).
  * Every runChain result is recorded as {fallback, reason, latency_ms}; the last hour feeds GET /api/health/llm
  * and an hourly "[llm] fallback rate" log line.
- * reason: timeout | api_error:<status> | validation:<rule> | safety | empty (null for a model reply).
+ * reason: timeout | api_error:<status> | validation:<rule> | empty (null for a model reply).
  */
 
 const WINDOW_MS = 60 * 60 * 1000;

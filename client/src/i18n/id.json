@@ -279,6 +279,7 @@
       "blocked": "Diblokir demi keamanan",
       "blockedHint": "Tidak pernah dikirim ke tablet. Ubah atau hapus.",
       "rateLimited": "Terlalu banyak pesan dalam satu menit. Mohon tunggu sebentar.",
+      "private": "Catatan pribadi: asisten tidak akan pernah menyebutnya",
       "edit": "Ubah",
       "editItem": "Ubah catatan: {{text}}",
       "save": "Simpan",

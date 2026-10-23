@@ -17,6 +17,7 @@ const ttsRoutes      = require('./routes/tts');
 const healthRoutes   = require('./routes/health');
 const setupSocket    = require('./socket');
 const { startRoutineScheduler } = require('./services/routineScheduler');
+const { rescreenAllStale } = require('./services/storedSafety');
 const fallbackStats  = require('./llm/fallbackStats');
 
 const app    = express();
@@ -68,6 +69,7 @@ setupSocket(io);
 if (process.env.NODE_ENV !== 'test') {
   startRoutineScheduler(io);
   fallbackStats.startHourlyLog();
+  rescreenAllStale(); // stored notes/routines screened with an older SAFETY_VERSION (background, never blocks start-up)
 }
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;

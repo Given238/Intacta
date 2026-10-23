@@ -77,12 +77,6 @@ describe('the ladder', () => {
     expect(prompts).toHaveLength(2);
   });
 
-  it('an unsafe reply (distressing fact) goes down the ladder with reason safety', async () => {
-    scriptModel({ validate: 'You miss him.', reassure: 'He died in 2015.', redirect: "Let's sit." });
-    const out = await runChain({ transcript: "Where's my husband", language: 'en' });
-    expect(out).toMatchObject({ _fallback: true, _reason: 'safety' });
-  });
-
   it('the patient cap (never below 15 words) rejects a long reply', async () => {
     const long = { validate: 'You are missing your son very much right now.', reassure: 'I am right here with you all afternoon.', redirect: "Let's listen to a song you love." };
     scriptModel(long, long);

@@ -30,6 +30,8 @@ const {
 const { buildPrompt, wordCapFor } = require('../llm/prompts');
 const { runChain } = require('../llm/chain');
 const { loadPatientContext } = require('../llm/contextLoader');
+const safety = require('../services/contentSafety');
+const { SCREENED, allowAll } = require('./safetyTestUtils');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function makeRes() {
@@ -70,8 +72,11 @@ function owns(patientCaregiver) {
 }
 const SNAPSHOT_ROUTES = [
   [/SELECT name, language FROM patients/, [{ name: 'Eleanor Vance', language: 'en' }]],
-  [/FROM context_items WHERE/, [{ id: 1, scope: 'daily', text: 'Soup at 1' }, { id: 2, scope: 'permanent', text: 'Depe' }]],
+  [/FROM context_items WHERE/, [{ id: 1, scope: 'daily', text: 'Soup at 1', ...SCREENED }, { id: 2, scope: 'permanent', text: 'Depe', ...SCREENED }]],
 ];
+
+beforeAll(allowAll); // a calm-text classifier: these tests are about plumbing, not safety
+afterAll(() => safety.setClassifier(undefined));
 
 beforeEach(() => {
   mockQuery.mockReset();
@@ -129,10 +134,10 @@ describe('zod schemas', () => {
 // ── /api/context-items ───────────────────────────────────────────────────────
 describe('CRUD /api/context-items', () => {
   it('GET lists items with the scope filter', async () => {
-    routeQueries([owns(1), [/FROM context_items WHERE/, [{ id: 2, scope: 'permanent', text: 'Depe' }]]]);
+    routeQueries([owns(1), [/FROM context_items WHERE/, [{ id: 2, scope: 'permanent', text: 'Depe', ...SCREENED }]]]);
     const res = makeRes();
     await contextItems.listContextItems({ caregiverId: 1, validQuery: { patientId: 5, scope: 'permanent' } }, res);
-    expect(res.json).toHaveBeenCalledWith({ items: [{ id: 2, scope: 'permanent', text: 'Depe', blocked_category: null }] });
+    expect(res.json).toHaveBeenCalledWith({ items: [{ id: 2, scope: 'permanent', text: 'Depe', ...SCREENED, safety_pending: false }] });
     const call = mockQuery.mock.calls.find(c => /context_items/.test(c[0]));
     expect(call[0]).toMatch(/scope = \$2/);
     expect(call[1]).toEqual([5, 'permanent']);
@@ -192,7 +197,7 @@ describe('CRUD /api/context-items', () => {
     const io = makeIO();
     const res = makeRes();
     await contextItems.updateContextItem({ caregiverId: 1, params: { id: '3' }, body: { text: 'new' }, app: appWith(io) }, res);
-    expect(res.json).toHaveBeenCalledWith({ item: { id: 3, patient_id: 5, scope: 'daily', text: 'new' } });
+    expect(res.json).toHaveBeenCalledWith({ item: expect.objectContaining({ id: 3, patient_id: 5, scope: 'daily', text: 'new' }) });
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'context_item.update' }));
     expect(io.emitted[0]).toEqual(expect.objectContaining({ room: 'patient:5', event: 'context:sync', volatile: false }));
   });
@@ -503,7 +508,7 @@ describe('LLM prompt and word cap', () => {
   it('contextLoader returns items + max_speech_seconds and never strict_validation', async () => {
     routeQueries([...SNAPSHOT_ROUTES, [/patient_settings/, [{ max_speech_seconds: 4, strict_validation: false }]]]);
     const ctx = await loadPatientContext(5);
-    expect(ctx).toEqual({ language: 'en', daily_items: ['Soup at 1'], permanent_items: ['Depe'], max_speech_seconds: 4 });
+    expect(ctx).toEqual({ language: 'en', daily_items: ['Soup at 1'], permanent_items: ['Depe'], sensitive_items: [], max_speech_seconds: 4 });
   });
 
   function modelReturning(...responses) {

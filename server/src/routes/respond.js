@@ -90,6 +90,7 @@ router.post('/', authenticateDevice, audioUpload, async (req, res) => {
       transcript,
       daily_items:        patient.daily_items,
       permanent_items:    patient.permanent_items,
+      sensitive_items:    patient.sensitive_items,
       max_speech_seconds: patient.max_speech_seconds,
       timeOfDay,
       language,

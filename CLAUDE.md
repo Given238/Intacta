@@ -50,7 +50,7 @@ ALL patient-facing LLM output:
 - LLM returns structured JSON {validate, reassure, redirect}. The validator (`llm/validator.js`) rejects: any `?`; quizzing/correcting
   phrase patterns (whole-word/phrase, never substrings; a sentence opening with "Ingat,"/"Remember,"); >25 words; empty parts;
   non-Latin script. The chain also rejects: over the patient cap; food/drink in the redirect when not allowed; a different part of
-  the day than the one the patient named (`time_contradiction`, a correction); an unsafe reply (Content Safety).
+  the day than the one the patient named (`time_contradiction`, a correction). Replies are NOT run through the safety classifier (latency): see Content Safety.
 - Banned patterns (examples): id: kamu lupa, sudah kubilang/dibilang, tadi kan, apa kamu ingat, ingat tidak, bukan begitu, kamu salah,
   sebenarnya. en: you forgot, I told you, as I said, do you remember, that's wrong, you're wrong, actually. A validating phrase like
   "tidak salah kok merasa begitu" passes.
@@ -58,31 +58,28 @@ ALL patient-facing LLM output:
   reason, 2 s (skipped for 400/401/403/404); (3) static fallback from `llm/fallbacks.js`: 15 situation categories × 4 variants of each
   part × 2 languages, chosen by keyword intent (generic last), random, never reusing a piece from the last 3 replies, within the word
   cap; presence statements only; food only in hungry/thirsty. Fallbacks carry `_fallback: true`, `_reason`
-  (timeout | api_error:<status> | validation:<rule> | safety | empty) and are logged with latency.
+  (timeout | api_error:<status> | validation:<rule> | empty) and are logged with latency.
   NOTE (2026-10-21, decision pending): FR-4.3.2 says ≤1.2 s or fallback; the measured model latency does not fit that, so the
   default first-attempt budget is now 2500 ms + a 2 s retry. Confirm or restore.
 - Missing context params → generic comforting phrase, never an error (FR-4.3.5).
 - Any change to prompts or the validator requires the guardrail suite to pass (`npm test`); live checks: `RUN_LIVE_LLM_TESTS=1 npm test`.
 
 ## Content Safety (NON-NEGOTIABLE): text that reaches the patient
-- One module: `server/src/services/contentSafety.js` → `checkPatientFacingText(text, {language, kind})` → `{ok, category, reason}`;
-  kind = context | broadcast | routine | voice_test | reply. Max 300 chars.
-- Tier 1: whole-word rules (ID + EN) on normalised text (lowercase, accents/punctuation stripped, leetspeak `b0m`, stretched letters).
-  Instruction-type rules are skipped after a negation (`jangan`, `don't`…) so calm reminders pass ("Jangan sentuh kompor ya").
-  Death/accident facts block only spoken kinds (a context note may hold them as background); hospital/illness/death block AI replies.
-- Tier 2: Gemini classifier `{safe, category, confidence}` (blocks at confidence ≥0.7), 2.5 s timeout, `GEMINI_SAFETY_MODEL` else `GEMINI_MODEL`.
-  If it fails or times out, Tier 1 alone decides and `[safety]` is warned. Never runs under NODE_ENV=test.
-- Categories: threat_violence, fear_inducing, self_harm, abuse_insult, sexual, deception_harm, unsafe_instruction, other.
-- Enforced BEFORE saving/emitting (Tier 1 + 2): POST/PUT context-items, routines create/update (title, audio_script, display_text),
-  `broadcast:message`, `voice:test`. Refusal: REST 422 `{error, code:'unsafe_content', category}`; socket ack
-  `{success:false, code:'unsafe_content', category}`. Audit `content.blocked` with `{kind, category}` only, never the text.
-  Broadcasts: 10/min per caregiver (ack `code:'rate_limited'`).
-- Stored rows are re-checked (Tier 1) when the LLM context / terminal snapshot is built, when the portal lists them and on every
-  scheduler tick; failures get `blocked_category` (migration 007), are never sent or spoken, and show "Blocked for safety" in the portal
-  (still editable/deletable).
-- Every AI reply is Tier-1 checked; a failure goes down the fallback path. Prompts wrap the patient's words and the notes in
-  `<<<PATIENT … PATIENT>>>` / `<<<NOTES … NOTES>>>` as DATA, never instructions; the AI never states deaths, threats, illness or hospital.
-- Portal shows the refusal inline ("could frighten or upset the patient… e.g. 'Timothy akan pulang jam 5.'"), never the rule list.
+- One module: `server/src/services/contentSafety.js` → `checkPatientFacingText(text, {language, kind})` →
+  `{ok, category, reason, sensitive, score}`; kind = context | broadcast | routine | voice_test | reply.
+- NO word lists. The ONLY decision-maker is a Gemini classifier judging MEANING (any language, slang, misspelling, implication)
+  against a rubric with 10-12 few-shot examples (principles, never a list to match). Before the call only technical hygiene:
+  NFKC, control/invisible characters stripped, whitespace collapsed, trim, max 300 chars. Temperature 0, structured JSON
+  `{decision, category, addressed_to_patient, patient_distress_0_to_10, spoken_aloud_ok, reason_short}`, REST call from the server.
+- Model: `GEMINI_SAFETY_MODEL`, default `gemini-3.6-flash` (chosen 2026-10-23 from the key's model list: the strongest non-lite
+  flash that answers; 3.7/3.8-flash were overloaded or never answered, 2.5-flash is 404; never the lite reply model).
+  Lowest thinking level the model accepts (`minimal` for 3.0-3.6, `low` for 3.7+).
+- Categories: threat_or_harm, death_or_harm_prediction, fear_inducing, abandonment_or_shaming, abuse_or_insult, sexual,
+  harmful_instruction, sensitive_fact, other, none.
+- Block when decision=block OR distress ≥ 4. Spoken kinds (broadcast, routine, voice_test, reply) also block when
+  spoken_aloud_ok=false or category=sensitive_fact. kind=context + sensitive_fact (not addressed to the patient) is SAVED with
+  `sensitive=true`: never sent to the terminal, given to the LLM as a PRIVATE note it must never mention or hint at.
+- Bump `SAFETY_VERSION` whenever the rubric, threshold or model changes (stored rows are then re-screened).
 
 ## Code Conventions
 - Controllers atomic and thin; logic lives in /services.

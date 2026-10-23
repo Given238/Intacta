@@ -12,7 +12,7 @@
 const crypto  = require('crypto');
 const jwt     = require('jsonwebtoken');
 const { query } = require('../db/query');
-const { loadContextSnapshot, buildContextSync } = require('../services/contextService');
+const { loadContextSnapshot, buildContextSync, terminalContext } = require('../services/contextService');
 const { getSettings, buildSettingsSync } = require('../services/settingsService');
 const { pairWithCode, hashCode, PairingError } = require('../services/pairingService');
 const { logAudit } = require('../services/audit');
@@ -174,7 +174,7 @@ async function getDeviceContext(req, res) {
   try {
     const snapshot = await loadContextSnapshot(req.patientId);
     if (!snapshot) return res.status(404).json({ error: 'Patient not found' });
-    const { language, updated_at, ...context } = snapshot;
+    const { language, updated_at, ...context } = terminalContext(snapshot);
     return res.json({ context, language, updated_at });
   } catch (err) {
     console.error('getDeviceContext error:', err.message);
