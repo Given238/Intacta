@@ -279,6 +279,8 @@
       "blocked": "Blocked for safety",
       "blockedHint": "Never sent to the tablet. Edit or delete it.",
       "rateLimited": "Too many messages in a minute. Please wait a moment.",
+      "unavailable": "We couldn't verify this message right now. Please try again in a moment.",
+      "checking": "Checking...",
       "private": "Private note: the assistant will never mention this",
       "edit": "Edit",
       "editItem": "Edit note: {{text}}",

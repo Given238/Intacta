@@ -39,8 +39,11 @@ export function usePortalSocket() {
   return { socket, connected }
 }
 
-/** emit with an ack, rejecting after `timeoutMs` (socket.io acks never fire when offline). */
-export function emitWithAck(socket, event, payload, timeoutMs = 5000) {
+/**
+ * emit with an ack, rejecting after `timeoutMs` (socket.io acks never fire when offline). 12 s covers the server's
+ * safety check (two 4 s classifier attempts), so a broadcast is never reported failed and then delivered.
+ */
+export function emitWithAck(socket, event, payload, timeoutMs = 12000) {
   return new Promise((resolve, reject) => {
     if (!socket?.connected) {
       reject(new Error('offline'))

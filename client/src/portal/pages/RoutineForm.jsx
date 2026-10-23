@@ -4,6 +4,7 @@
  */
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Loader2 } from 'lucide-react'
 
 import Dialog, { DialogButton } from '../components/Dialog'
 
@@ -22,7 +23,7 @@ export default function RoutineForm({ routine, onCancel, onSave }) {
   const [script, setScript] = useState(routine?.audio_script || '')
   const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
-  const [unsafe, setUnsafe] = useState(false)
+  const [unsafe, setUnsafe] = useState(false) // false | 'unsafe' | 'unavailable' (classifier down: nothing saved)
 
   const letters = t('portal.routines.dayLetters', { returnObjects: true })
   const names   = t('portal.routines.dayNames', { returnObjects: true })
@@ -47,7 +48,7 @@ export default function RoutineForm({ routine, onCancel, onSave }) {
     setSaving(true)
     const result = await onSave({ title: title.trim(), trigger_time: time, days: [...days].sort(), category, audio_script: script.trim() })
     setSaving(false)
-    if (result === 'unsafe') setUnsafe(true)
+    if (result === 'unsafe' || result === 'unavailable') setUnsafe(result)
   }
 
   const err = (key) => errors[key] && (
@@ -61,7 +62,9 @@ export default function RoutineForm({ routine, onCancel, onSave }) {
       onClose={onCancel}
       footer={<>
         <DialogButton variant="ghost" onClick={onCancel}>{t('portal.common.cancel')}</DialogButton>
-        <DialogButton type="submit" form="routine-form" disabled={saving}>{t('portal.common.save')}</DialogButton>
+        <DialogButton type="submit" form="routine-form" disabled={saving}>
+          {saving ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" />{t('portal.safety.checking')}</> : t('portal.common.save')}
+        </DialogButton>
       </>}
     >
       <form id="routine-form" onSubmit={submit} noValidate className="flex flex-col gap-4">
@@ -112,7 +115,7 @@ export default function RoutineForm({ routine, onCancel, onSave }) {
         </div>
         {unsafe && (
           <p role="alert" className="text-secondary rounded-control bg-[#dc2626] px-3 py-3 text-white">
-            {t('portal.safety.unsafe')}
+            {t(`portal.safety.${unsafe}`)}
           </p>
         )}
       </form>

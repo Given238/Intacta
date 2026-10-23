@@ -907,6 +907,19 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
   the brief, replies are not classified (latency); they rely on the reply validator + prompt + pre-screened notes. The
   ladder test for "He died in 2015." was deleted. Flagged.
 
+### Step 3: fail closed (DONE)
+- Server (in place since step 2, there is nothing left to fall back to): timeout 4 s per attempt, one automatic retry,
+  then `SafetyUnavailableError` → REST 503 `{code:'safety_unavailable', error}` / socket ack
+  `{success:false, code:'safety_unavailable'}`. Covers API errors (429/503), timeouts, invalid JSON, invalid shape, missing
+  key (no retry, no API call), no classifier. Failures are never cached; nothing is saved, emitted or audited as blocked.
+- Portal: "Checking..." on Context add (caption + spinner) and inline Save, RoutineForm Save, broadcast Send
+  (status line); 503 → "We couldn't verify this message right now. Please try again in a moment." (EN + ID), text kept.
+  `emitWithAck` default timeout 5 s → 12 s so a broadcast is never shown as failed and then delivered
+  (the server can take two 4 s attempts). Voice test on a 503 still falls back to speaking on the phone (not the patient).
+- Tests (`content-safety.test.js`, mocked): retry then refuse, retry then pass, 2 × 4 s timeout (fake timers), old/invalid
+  shape, invalid JSON through the real REST client (fetch mocked; key in a header), missing key, not cached, and all four
+  entry points answer 503 / safety_unavailable with no writes or emits.
+
 ---
 
 ## Known bugs / open items

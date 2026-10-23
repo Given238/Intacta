@@ -195,8 +195,8 @@ function SpeakBar({ socket, language, onError }) {
       setSent(true)
       setTimeout(() => setSent(false), 2500)
     } catch (err) {
-      if (err.code === 'unsafe_content') {
-        setUnsafe(true) // keep the text so it can be rephrased
+      if (err.code === 'unsafe_content' || err.code === 'safety_unavailable') {
+        setUnsafe(err.code === 'unsafe_content' ? 'unsafe' : 'unavailable') // keep the text so it can be rephrased / resent
         return
       }
       console.error('broadcast failed:', err.message)
@@ -230,7 +230,7 @@ function SpeakBar({ socket, language, onError }) {
             enterKeyHint="send"
             value={text}
             onChange={e => { setText(e.target.value); setSent(false); setUnsafe(false) }}
-            aria-invalid={unsafe}
+            aria-invalid={!!unsafe}
             aria-describedby="speak-now-status"
             placeholder={recording ? t('portal.patient.listening') : t('portal.patient.speakNow')}
             className="text-body min-w-0 flex-1 bg-transparent text-black outline-none placeholder:text-[#5f6366]"
@@ -238,7 +238,7 @@ function SpeakBar({ socket, language, onError }) {
           <button
             type="submit"
             disabled={sending || !text.trim()}
-            aria-label={t('portal.patient.send')}
+            aria-label={sending ? t('portal.safety.checking') : t('portal.patient.send')}
             className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-control text-[#043961] disabled:opacity-30"
           >
             {sending ? <Loader2 size={18} className="animate-spin" aria-hidden="true" /> : <SendHorizontal size={18} aria-hidden="true" />}
@@ -247,7 +247,8 @@ function SpeakBar({ socket, language, onError }) {
       </div>
       <p id="speak-now-status" aria-live="polite" className={`text-caption min-h-[16px] pt-1 text-white ${unsafe ? 'mt-2 rounded-control bg-[#dc2626] px-3 py-2' : 'pl-[56px]'}`}>
         {unsafe
-          ? t('portal.safety.unsafe')
+          ? t(`portal.safety.${unsafe}`)
+          : sending ? t('portal.safety.checking')
           : sent ? t('portal.patient.sent') : (text.trim().length > 160 ? `${text.trim().length}/${BROADCAST_MAX}` : '')}
       </p>
     </form>

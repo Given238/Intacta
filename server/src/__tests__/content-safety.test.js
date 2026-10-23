@@ -343,3 +343,156 @@ describe('voice:test', () => {
     expect(io.emitted).toEqual([]);
   });
 });
+
+// ── Fail closed ─────────────────────────────────────────────────────────────────
+describe('fail closed: no verdict → refused, never allowed', () => {
+  let warn;
+  beforeEach(() => { warn = jest.spyOn(console, 'warn').mockImplementation(() => {}); });
+  afterEach(() => warn.mockRestore());
+
+  const expectUnavailable = (p) => expect(p).rejects.toMatchObject({ name: 'SafetyUnavailableError', code: 'safety_unavailable' });
+
+  it('an API error is retried once, then refused', async () => {
+    const classifier = jest.fn(async () => { throw new Error('classifier HTTP 503'); });
+    safety.setClassifier(classifier);
+    await expectUnavailable(safety.checkPatientFacingText('Rina datang jam 3', { kind: 'broadcast' }));
+    expect(classifier).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls.flat().join(' ')).not.toMatch(/Rina/); // the text is never logged
+  });
+
+  it('a failure followed by a good answer passes (the automatic retry)', async () => {
+    const classifier = jest.fn()
+      .mockRejectedValueOnce(new Error('classifier HTTP 429'))
+      .mockResolvedValueOnce(ALLOW);
+    safety.setClassifier(classifier);
+    expect((await safety.checkPatientFacingText('Rina datang jam 3', { kind: 'broadcast' })).ok).toBe(true);
+    expect(classifier).toHaveBeenCalledTimes(2);
+  });
+
+  it('a timeout (4 s per attempt) is refused after two attempts', async () => {
+    jest.useFakeTimers();
+    try {
+      const classifier = jest.fn(() => new Promise(() => {})); // never answers
+      safety.setClassifier(classifier);
+      const settled = expectUnavailable(safety.checkPatientFacingText('Rina datang jam 3', { kind: 'broadcast' }));
+      await jest.advanceTimersByTimeAsync(safety.CLASSIFIER_TIMEOUT_MS);
+      expect(classifier).toHaveBeenCalledTimes(2);
+      await jest.advanceTimersByTimeAsync(safety.CLASSIFIER_TIMEOUT_MS);
+      await settled;
+      expect(safety.CLASSIFIER_TIMEOUT_MS).toBe(4000);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('an invalid verdict shape is refused', async () => {
+    safety.setClassifier(async () => ({ safe: true, confidence: 0.99 })); // the old schema
+    await expectUnavailable(safety.checkPatientFacingText('Rina datang jam 3', { kind: 'broadcast' }));
+  });
+
+  it('invalid JSON from the API is refused (real REST client, fetch mocked)', async () => {
+    const savedFetch = global.fetch;
+    const savedKey = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = 'test-key';
+    global.fetch = jest.fn(async () => ({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'not json' }] } }] }) }));
+    try {
+      safety.setClassifier(safety.geminiClassifier);
+      await expectUnavailable(safety.checkPatientFacingText('Rina datang jam 3', { kind: 'broadcast' }));
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      const [url, init] = global.fetch.mock.calls[0];
+      expect(url).toMatch(new RegExp(`/models/${safety.safetyModel()}:generateContent$`));
+      expect(init.headers['x-goog-api-key']).toBe('test-key'); // key in a header, never in the URL
+      expect(JSON.parse(init.body).generationConfig).toMatchObject({ temperature: 0, responseMimeType: 'application/json' });
+    } finally {
+      global.fetch = savedFetch;
+      if (savedKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = savedKey;
+    }
+  });
+
+  it('a missing API key is refused without calling the API', async () => {
+    const savedFetch = global.fetch;
+    const savedKey = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    global.fetch = jest.fn();
+    try {
+      safety.setClassifier(safety.geminiClassifier);
+      await expectUnavailable(safety.checkPatientFacingText('Rina datang jam 3', { kind: 'broadcast' }));
+      expect(global.fetch).not.toHaveBeenCalled();
+    } finally {
+      global.fetch = savedFetch;
+      if (savedKey !== undefined) process.env.GEMINI_API_KEY = savedKey;
+    }
+  });
+
+  it('no classifier configured (unit tests by default) is refused', async () => {
+    safety.setClassifier(null);
+    await expectUnavailable(safety.checkPatientFacingText('Rina datang jam 3', { kind: 'context' }));
+  });
+
+  it('a failure is not cached: the next call asks again', async () => {
+    const classifier = jest.fn().mockRejectedValueOnce(new Error('x')).mockRejectedValueOnce(new Error('x')).mockResolvedValue(ALLOW);
+    safety.setClassifier(classifier);
+    await expectUnavailable(safety.checkPatientFacingText('Obat jam 8', { kind: 'routine' }));
+    expect((await safety.checkPatientFacingText('Obat jam 8', { kind: 'routine' })).ok).toBe(true);
+  });
+
+  describe('every entry point answers 503 / safety_unavailable and saves or sends nothing', () => {
+    beforeEach(() => safety.setClassifier(async () => { throw new Error('classifier HTTP 503'); }));
+
+    const noWrites = () => expect(mockQuery.mock.calls.some(([sql]) => /INSERT|UPDATE/.test(sql))).toBe(false);
+    const noBlockedAudit = () => expect(logAudit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'content.blocked' }));
+
+    it('POST /api/context-items', async () => {
+      routeQueries([owns(1)]);
+      const io = makeIO();
+      const res = makeRes();
+      await contextItems.createContextItem({ caregiverId: 1, body: { patientId: 5, scope: 'daily', text: 'besok engkau mati' }, app: appWith(io) }, res);
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith({ error: "We couldn't verify this message right now. Please try again in a moment.", code: 'safety_unavailable' });
+      noWrites();
+      noBlockedAudit();
+      expect(io.emitted).toEqual([]);
+    });
+
+    it('PUT /api/context-items/:id', async () => {
+      routeQueries([[/FROM context_items ci JOIN patients/, [{ id: 3, patient_id: 5, scope: 'daily', text: 'old', caregiver_id: 1 }]]]);
+      const res = makeRes();
+      await contextItems.updateContextItem({ caregiverId: 1, params: { id: '3' }, body: { text: 'new' }, app: appWith(makeIO()) }, res);
+      expect(res.status).toHaveBeenCalledWith(503);
+      noWrites();
+    });
+
+    it('routine create and update', async () => {
+      routeQueries([
+        [/SELECT id, caregiver_id FROM patients/, [{ id: 5, caregiver_id: 1 }]],
+        [/FROM routines r/, [{ id: 1, trigger_time: '12:00:00', days: [0], caregiver_id: 1, title: 'Makan' }]],
+      ]);
+      const create = makeRes();
+      await routinesCtl.createRoutine({ caregiverId: 1, body: { patientId: 5, title: 'Makan', trigger_time: '12:30', category: 'meal' } }, create);
+      const update = makeRes();
+      await routinesCtl.updateRoutine({ caregiverId: 1, params: { id: '1' }, body: { audio_script: 'Waktunya makan.' } }, update);
+      expect(create.status).toHaveBeenCalledWith(503);
+      expect(update.status).toHaveBeenCalledWith(503);
+      noWrites();
+    });
+
+    it('broadcast:message', async () => {
+      routeQueries([owns(1), [/SELECT name, language FROM patients/, [{ name: 'Oma', language: 'id' }]]]);
+      const io = makeIO();
+      const ack = jest.fn();
+      await handleBroadcast(io, { caregiverId: 1, emit: jest.fn() })({ patientId: 5, text: 'Makan siang jam 12' }, ack);
+      expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: false, code: 'safety_unavailable' }));
+      expect(io.emitted).toEqual([]);
+      expect(logInteraction).not.toHaveBeenCalled();
+    });
+
+    it('voice:test', async () => {
+      routeQueries([owns(1), [/SELECT name, language FROM patients/, [{ name: 'Oma', language: 'id' }]], [/LEFT JOIN patient_settings/, [{}]]]);
+      const io = makeIO();
+      const ack = jest.fn();
+      await handleVoiceTest(io, { caregiverId: 1, emit: jest.fn() })({ patientId: 5 }, ack);
+      expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: false, code: 'safety_unavailable' }));
+      expect(io.emitted).toEqual([]);
+    });
+  });
+});

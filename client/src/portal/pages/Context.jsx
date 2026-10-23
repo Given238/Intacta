@@ -7,6 +7,8 @@
  * Data: GET /api/context-items (today's daily + permanent), POST / DELETE with optimistic update + rollback.
  * Every mutation makes the server push context:sync to the paired terminal.
  * Safety: the server refuses text that could frighten the patient (422 unsafe_content) → inline message, text kept.
+ * While the server checks it the button says "Checking..."; if it cannot verify the text (503 safety_unavailable) nothing is
+ * saved and the caregiver is asked to try again (fail closed).
  * Stored items that fail a re-check come back with blocked_category: shown with a red "Blocked for safety" label,
  * never sent to the tablet, still editable (PUT) and deletable. A distressing but factual note (sensitive) is kept as
  * background with a small "Private note" label: the assistant never mentions it.
@@ -62,6 +64,7 @@ export default function Context() {
       setData(d => ({ ...d, [scope]: d[scope].filter(i => i.id !== temp.id) }))
       if (err.code === 'unauthorized') return 'error'
       if (err.code === 'unsafe_content') return 'unsafe'
+      if (err.code === 'safety_unavailable') return 'unavailable'
       console.error('add context failed:', err.message)
       showToast(t('portal.context.addFailed'))
       return 'error'
@@ -79,6 +82,7 @@ export default function Context() {
     } catch (err) {
       if (err.code === 'unauthorized') return 'error'
       if (err.code === 'unsafe_content') return 'unsafe'
+      if (err.code === 'safety_unavailable') return 'unavailable'
       console.error('edit context failed:', err.message)
       showToast(t('portal.context.addFailed'))
       return 'error'
@@ -162,7 +166,7 @@ function ContextCard({ scope, items, onAdd, onEdit, onDelete }) {
     const result = await onAdd(trimmed)
     setSaving(false)
     if (result !== 'ok') setText(trimmed) // give the text back so it can be retried or rephrased
-    if (result === 'unsafe') setInputError(t('portal.safety.unsafe'))
+    if (result === 'unsafe' || result === 'unavailable') setInputError(t(`portal.safety.${result}`))
   }
 
 
@@ -207,7 +211,7 @@ function ContextCard({ scope, items, onAdd, onEdit, onDelete }) {
           <button
             type="submit"
             disabled={saving}
-            aria-label={t('portal.context.add')}
+            aria-label={saving ? t('portal.safety.checking') : t('portal.context.add')}
             className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full disabled:opacity-50"
           >
             {saving
@@ -217,7 +221,9 @@ function ContextCard({ scope, items, onAdd, onEdit, onDelete }) {
         </div>
         <div id={errorId} aria-live="polite" className="text-caption flex min-h-[18px] justify-between gap-2 px-4 pt-1">
           <span className="text-danger-soft">
-            {inputError || (tooLong ? t('portal.context.errors.tooLong', { max: MAX_CHARS }) : '')}
+            {saving
+              ? <span className="text-muted">{t('portal.safety.checking')}</span>
+              : inputError || (tooLong ? t('portal.context.errors.tooLong', { max: MAX_CHARS }) : '')}
           </span>
           {trimmed.length >= COUNTER_FROM && (
             <span className={`shrink-0 tabular-nums ${tooLong ? 'text-danger-soft' : 'text-muted'}`}>
@@ -249,7 +255,7 @@ function ContextItemRow({ item, confirming, onConfirm, onCancelConfirm, onDelete
     const result = await onEdit(clean)
     setSaving(false)
     if (result === 'ok') { setEditing(false); setError(null) }
-    else if (result === 'unsafe') setError(t('portal.safety.unsafe'))
+    else if (result === 'unsafe' || result === 'unavailable') setError(t(`portal.safety.${result}`))
   }
 
   if (editing) {
@@ -280,7 +286,9 @@ function ContextItemRow({ item, confirming, onConfirm, onCancelConfirm, onDelete
               disabled={saving}
               className="text-body min-h-[44px] rounded-full bg-white px-4 font-semibold text-[#043961] disabled:opacity-50"
             >
-              {saving ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : t('portal.safety.save')}
+              {saving
+                ? <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" aria-hidden="true" />{t('portal.safety.checking')}</span>
+                : t('portal.safety.save')}
             </button>
           </div>
         </form>

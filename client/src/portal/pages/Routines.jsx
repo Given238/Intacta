@@ -111,6 +111,7 @@ export default function Routines() {
     } catch (err) {
       if (err.code === 'unauthorized') return 'error'
       if (err.code === 'unsafe_content') return 'unsafe'
+      if (err.code === 'safety_unavailable') return 'unavailable'
       console.error('routine save failed:', err.message)
       showToast(t(editing === 'new' ? 'portal.routines.createFailed' : 'portal.routines.saveFailed'))
       return 'error'
