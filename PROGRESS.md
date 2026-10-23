@@ -920,6 +920,22 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
   shape, invalid JSON through the real REST client (fetch mocked; key in a header), missing key, not cached, and all four
   entry points answer 503 / safety_unavailable with no writes or emits.
 
+### Step 4: existing data (DONE)
+- Migration 008 (written in step 2) **applied to the dev DB** (`npm run migrate`, 001-008 re-run, idempotent).
+  The dev DB then had 5 current context items and 3 routines with no verdict (1 routine already blocked by the old rules).
+  Re-screen needs classifier quota: until then they are pending, i.e. not sent, not spoken, not in prompts.
+- Re-screen: on server start (`storedSafety.rescreenAllStale`, background, sequential) and lazily on read (portal list
+  waits; snapshot, scheduler tick and upcoming-routines re-screen in the background and skip the row meanwhile).
+  One re-screen per row at a time. A failed re-screen writes nothing and leaves the row pending.
+- AI replies are never classified; the pipeline relies on the stored verdicts (no classifier call when every row is current).
+- Portal: "Blocked for safety" (unchanged, still editable/deletable) and a new muted "Safety check pending: not used until
+  it is checked" label on context items and routines (EN + ID).
+- Tests: snapshot uses only screened + allowed rows (sensitive apart, no classifier call), context:sync never carries
+  blocked/sensitive notes, LLM context gets sensitive notes as private items, stale row left out without waiting then
+  stored, portal list waits and shows the result, failed re-screen stays pending, old version = stale, scheduler fires
+  only usable routines without waiting, upcoming routines filtered, routine re-screen covers every spoken field, start-up
+  re-screen.
+
 ---
 
 ## Known bugs / open items

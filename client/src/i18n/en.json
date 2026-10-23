@@ -281,6 +281,7 @@
       "rateLimited": "Too many messages in a minute. Please wait a moment.",
       "unavailable": "We couldn't verify this message right now. Please try again in a moment.",
       "checking": "Checking...",
+      "pending": "Safety check pending: not used until it is checked",
       "private": "Private note: the assistant will never mention this",
       "edit": "Edit",
       "editItem": "Edit note: {{text}}",

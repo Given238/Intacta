@@ -496,3 +496,156 @@ describe('fail closed: no verdict → refused, never allowed', () => {
     });
   });
 });
+
+// ── Existing data: stored verdicts, re-screening, exclusion ──────────────────────
+describe('stored data', () => {
+  const contextService = require('../services/contextService');
+  const stored = require('../services/storedSafety');
+  const sched = require('../services/routineScheduler');
+  const { loadPatientContext, loadUpcomingRoutines } = require('../llm/contextLoader');
+
+  const STALE = { safety_version: null, safety_verdict: null, blocked_category: null, sensitive: false };
+  const BLOCKED = { ...SCREENED, safety_verdict: 'block', blocked_category: 'threat_or_harm' };
+  const PRIVATE = { ...SCREENED, sensitive: true };
+  const patientRow = [/SELECT name, language FROM patients/, [{ name: 'Oma', language: 'id' }]];
+
+  let warn;
+  beforeEach(() => { warn = jest.spyOn(console, 'warn').mockImplementation(() => {}); });
+  afterEach(() => warn.mockRestore());
+
+  it('the snapshot uses only screened + allowed items; sensitive ones come apart; no classifier call when all are current', async () => {
+    const classifier = jest.fn(async () => ALLOW);
+    safety.setClassifier(classifier);
+    routeQueries([patientRow, [/FROM context_items WHERE/, [
+      { id: 1, scope: 'daily', text: 'Timothy pulang jam 5 sore', ...SCREENED },
+      { id: 2, scope: 'daily', text: 'Ada bom besok', ...BLOCKED },
+      { id: 3, scope: 'permanent', text: 'Suami Ibu sudah meninggal tahun 2019', ...PRIVATE },
+      { id: 4, scope: 'permanent', text: 'Ibu suka lagu lama', ...SCREENED },
+    ]]]);
+    const snap = await contextService.loadContextSnapshot(5);
+    expect(snap.daily).toEqual([{ id: 1, text: 'Timothy pulang jam 5 sore' }]);
+    expect(snap.permanent).toEqual([{ id: 4, text: 'Ibu suka lagu lama' }]);
+    expect(snap.sensitive).toEqual([{ id: 3, text: 'Suami Ibu sudah meninggal tahun 2019' }]);
+    expect(classifier).not.toHaveBeenCalled();
+  });
+
+  it('the terminal (context:sync) never gets blocked or sensitive notes', async () => {
+    routeQueries([patientRow, [/FROM context_items WHERE/, [
+      { id: 2, scope: 'daily', text: 'Ada bom besok', ...BLOCKED },
+      { id: 3, scope: 'permanent', text: 'Suami Ibu sudah meninggal tahun 2019', ...PRIVATE },
+    ]]]);
+    const { payload } = await contextService.buildContextSync(5);
+    expect(payload).toEqual({ patient_name: 'Oma', language: 'id', daily: [], permanent: [] });
+    expect(JSON.stringify(payload)).not.toMatch(/bom|meninggal/);
+  });
+
+  it('the LLM context gets the sensitive notes as private items, never blocked ones', async () => {
+    routeQueries([patientRow, [/patient_settings/, [{ max_speech_seconds: 10 }]], [/FROM context_items WHERE/, [
+      { id: 2, scope: 'daily', text: 'Ada bom besok', ...BLOCKED },
+      { id: 3, scope: 'permanent', text: 'Suami Ibu sudah meninggal tahun 2019', ...PRIVATE },
+    ]]]);
+    const ctx = await loadPatientContext(5);
+    expect(ctx.daily_items).toEqual([]);
+    expect(ctx.permanent_items).toEqual([]);
+    expect(ctx.sensitive_items).toEqual(['Suami Ibu sudah meninggal tahun 2019']);
+  });
+
+  it('a stale item is left out of the snapshot without waiting, and re-screened in the background', async () => {
+    let release;
+    safety.setClassifier(() => new Promise((resolve) => { release = () => resolve(BLOCK('death_or_harm_prediction')); }));
+    routeQueries([patientRow, [/FROM context_items WHERE/, [{ id: 7, scope: 'daily', text: 'besok engkau mati', ...STALE }]]]);
+    const snap = await contextService.loadContextSnapshot(5); // returns although the classifier has not answered
+    expect(snap.daily).toEqual([]);
+    release();
+    await new Promise(r => setImmediate(r));
+    const update = mockQuery.mock.calls.find(([sql]) => /UPDATE context_items SET safety_version/.test(sql));
+    expect(update[1]).toEqual([safety.SAFETY_VERSION, 'block', 9, 'death_or_harm_prediction', false, 7]);
+  });
+
+  it('the portal list waits for the re-screen and shows the result (blocked, still listed)', async () => {
+    blockOnly(['besok engkau mati'], 'death_or_harm_prediction');
+    routeQueries([[/FROM context_items WHERE/, [
+      { id: 7, scope: 'daily', text: 'besok engkau mati', ...STALE },
+      { id: 8, scope: 'daily', text: 'Obat diminum jam 8 pagi', ...STALE },
+    ]]]);
+    const items = await contextService.listItems(5);
+    expect(items).toEqual([
+      expect.objectContaining({ id: 7, blocked_category: 'death_or_harm_prediction', safety_verdict: 'block', safety_pending: false }),
+      expect.objectContaining({ id: 8, blocked_category: null, safety_verdict: 'allow', safety_pending: false }),
+    ]);
+  });
+
+  it('a re-screen that cannot get a verdict leaves the item pending (never allowed) and writes nothing', async () => {
+    safety.setClassifier(async () => { throw new Error('classifier HTTP 429'); });
+    routeQueries([[/FROM context_items WHERE/, [{ id: 7, scope: 'daily', text: 'Obat jam 8', ...STALE }]]]);
+    const [item] = await contextService.listItems(5);
+    expect(item).toMatchObject({ id: 7, safety_pending: true });
+    expect(stored.isUsable(item)).toBe(false);
+    expect(mockQuery.mock.calls.some(([sql]) => /UPDATE/.test(sql))).toBe(false);
+  });
+
+  it('an item screened with an older SAFETY_VERSION counts as stale', () => {
+    expect(stored.isCurrent({ safety_version: safety.SAFETY_VERSION - 1 })).toBe(false);
+    expect(stored.isUsable({ ...SCREENED, safety_version: safety.SAFETY_VERSION - 1 })).toBe(false);
+    expect(stored.isUsable(SCREENED)).toBe(true);
+  });
+
+  describe('routines', () => {
+    const NOW = new Date('2026-10-14T05:00:00Z'); // 12:00 Jakarta, Wednesday
+    const base = { patient_id: 5, days: null, trigger_time: '11:58:00', category: 'meal', is_active: true, last_fired_on: null, display_text: null };
+    const routines = [
+      { id: 21, title: 'Lunch', audio_script: 'Ada bom besok', ...base, ...BLOCKED },
+      { id: 22, title: 'Old', audio_script: 'Waktunya makan siang.', ...base, ...STALE },
+      { id: 23, title: 'Makan siang', audio_script: 'Waktunya makan siang.', ...base, ...SCREENED },
+    ];
+
+    it('the scheduler fires only screened + allowed routines and never waits for the classifier', async () => {
+      let release;
+      const gate = new Promise((resolve) => { release = resolve; });
+      safety.setClassifier(() => gate.then(() => ALLOW)); // would hang the tick if it waited
+      routeQueries([
+        [/FROM routines\s+WHERE is_active/, routines],
+        [/UPDATE routines SET last_fired_on/, [{ id: 23 }]],
+      ]);
+      const io = { in: () => ({ fetchSockets: async () => [{ rooms: new Set(['device:1']) }] }), ...makeIO() };
+      const r = await sched.runTick(io, { now: NOW, startedAt: null });
+      expect(r.blocked).toEqual([21, 22]);
+      expect(io.emitted.filter(e => e.event === 'routine:trigger').map(e => e.data.id)).toEqual([23]);
+      release(); // let the background re-screen of 22 finish
+      for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+    });
+
+    it('the reply prompt gets only usable upcoming routines', async () => {
+      routeQueries([[/FROM routines WHERE patient_id/, routines.map(r => ({ ...r, trigger_time: '13:00:00' }))]]);
+      const upcoming = await loadUpcomingRoutines(5, NOW);
+      expect(upcoming.map(u => u.title)).toEqual(['Makan siang']);
+    });
+
+    it('a stale routine is re-screened (every spoken field) and the verdict stored', async () => {
+      const classifier = jest.fn(async () => verdict({ patient_distress_0_to_10: 1 }));
+      safety.setClassifier(classifier);
+      routeQueries([]);
+      const r = await sched.recheckRoutine({ id: 22, title: 'Old', audio_script: 'Waktunya makan siang.', display_text: 'Makan', ...STALE });
+      expect(classifier.mock.calls.map(c => c[0])).toEqual(['Old', 'Waktunya makan siang.', 'Makan']);
+      expect(r).toMatchObject({ safety_verdict: 'allow', safety_score: 1, safety_pending: false });
+      const update = mockQuery.mock.calls.find(([sql]) => /UPDATE routines SET safety_version/.test(sql));
+      expect(update[1]).toEqual([safety.SAFETY_VERSION, 'allow', 1, null, 22]);
+    });
+  });
+
+  it('server start: re-screens every stale context item and routine', async () => {
+    blockOnly(['Ada bom besok']);
+    routeQueries([
+      [/FROM context_items\s+WHERE \(safety_version IS NULL/, [{ id: 1, text: 'Ada bom besok', safety_version: null }]],
+      [/FROM routines\s+WHERE safety_version IS NULL/, [{ id: 2, title: 'Lunch', audio_script: 'Makan siang', display_text: null, safety_version: 1 }]],
+    ]);
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await stored.rescreenAllStale();
+    log.mockRestore();
+    const updates = mockQuery.mock.calls.filter(([sql]) => /^UPDATE/.test(sql.trim()));
+    expect(updates.map(([sql, p]) => [sql.match(/UPDATE (\w+)/)[1], p[1], p[p.length - 1]])).toEqual([
+      ['context_items', 'block', 1],
+      ['routines', 'allow', 2],
+    ]);
+  });
+});

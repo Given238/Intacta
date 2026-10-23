@@ -308,7 +308,10 @@ function ContextItemRow({ item, confirming, onConfirm, onCancelConfirm, onDelete
             <span className="text-danger-soft">{t('portal.safety.blockedHint')}</span>
           </p>
         )}
-        {!blocked && item.sensitive && (
+        {!blocked && item.safety_pending && !item.pending && (
+          <p className="text-caption mt-1 text-muted">{t('portal.safety.pending')}</p>
+        )}
+        {!blocked && !item.safety_pending && item.sensitive && (
           <p className="text-caption mt-1 text-muted">{t('portal.safety.private')}</p>
         )}
       </div>

@@ -9,6 +9,7 @@
  * Data: GET/POST/PUT/DELETE /api/routines; toggles optimistic with rollback, the form waits for the server.
  * Home's Schedule reads the same endpoint. Safety: an unsafe title/script is refused (422 unsafe_content) and shown in
  * the form; a stored routine that fails the re-check has blocked_category → red "Blocked for safety" label, never fired.
+ * One the server could not re-check yet (safety_pending) is labelled and does not fire until it is checked.
  */
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -268,6 +269,9 @@ function RoutineRow({ routine, onToggle, onToggleDay, onEdit, onDelete }) {
           <span className={`text-body line-clamp-2 break-words ${off ? 'opacity-60' : ''}`}>{title}</span>
           {routine.blocked_category && (
             <span className="text-caption whitespace-nowrap rounded-full bg-[#dc2626] px-2 py-[2px] text-white">{t('portal.safety.blocked')}</span>
+          )}
+          {!routine.blocked_category && routine.safety_pending && (
+            <span className="text-caption text-muted">{t('portal.safety.pending')}</span>
           )}
         </span>
         <Switch size="sm" checked={!off} disabled={routine.pending} onChange={onToggle} label={t('portal.routines.toggle', { title })} />
