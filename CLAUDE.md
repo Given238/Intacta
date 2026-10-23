@@ -49,7 +49,8 @@ ALL patient-facing LLM output:
   within 10 min ("do not reuse their openings or redirects"), and a server-computed "food may be offered" flag. Temperature 0.7.
 - LLM returns structured JSON {validate, reassure, redirect}. The validator (`llm/validator.js`) rejects: any `?`; quizzing/correcting
   phrase patterns (whole-word/phrase, never substrings; a sentence opening with "Ingat,"/"Remember,"); >25 words; empty parts;
-  non-Latin script. The chain also rejects: over the patient cap; food/drink in the redirect when not allowed; an unsafe reply (Content Safety).
+  non-Latin script. The chain also rejects: over the patient cap; food/drink in the redirect when not allowed; a different part of
+  the day than the one the patient named (`time_contradiction`, a correction); an unsafe reply (Content Safety).
 - Banned patterns (examples): id: kamu lupa, sudah kubilang/dibilang, tadi kan, apa kamu ingat, ingat tidak, bukan begitu, kamu salah,
   sebenarnya. en: you forgot, I told you, as I said, do you remember, that's wrong, you're wrong, actually. A validating phrase like
   "tidak salah kok merasa begitu" passes.

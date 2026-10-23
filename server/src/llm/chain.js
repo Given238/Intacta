@@ -25,6 +25,29 @@ const NON_RETRYABLE = new Set([400, 401, 403, 404]);
 const FOOD_WORDS = /(?:^|[^a-z])(teh|kopi|susu|camilan|kudapan|kue|roti|biskuit|buah|makan\w*|minum\w*|sup|air putih|segelas|secangkir|tea|coffee|milk|snack\w*|cookies?|biscuits?|cake|bread|fruit|soup|sandwich\w*|eat\w*|food|meal|lunch|dinner|breakfast|drink\w*|sip|water|juice|cup of)(?=$|[^a-z])/i;
 
 /** One spoken sentence: trimmed, first letter capitalised, ends with . or ! (the model sometimes returns fragments). */
+// Parts of the day per language (in English "sore" means pain, so it is only an Indonesian time word)
+const DAY_PARTS = {
+  en: /\b(morning|midday|noon|afternoon|evening|tonight|night)\b/gi,
+  id: /\b(pagi|siang|sore|malam)\b/gi,
+};
+
+/** Normalised part-of-day words in a text ("tonight" counts as "night"). */
+function dayParts(text, language) {
+  const re = DAY_PARTS[language === 'id' ? 'id' : 'en'];
+  const found = String(text || '').toLowerCase().match(re) || [];
+  return new Set(found.map(w => (w === 'tonight' ? 'night' : w === 'noon' ? 'midday' : w)));
+}
+
+/**
+ * True when the patient named a part of the day and the reply names a different one: a correction
+ * (reality orientation), e.g. answering a morning greeting with the actual afternoon.
+ */
+function contradictsTime(transcript, replyText, language) {
+  const said = dayParts(transcript, language);
+  if (!said.size) return false;
+  return [...dayParts(replyText, language)].some(p => !said.has(p));
+}
+
 function tidySentence(text) {
   let s = String(text || '').replace(/\s+/g, ' ').trim();
   if (!s) return s;
@@ -84,11 +107,11 @@ function fallbackReply(transcript, language, { recent, maxWords, historyKey } = 
 }
 
 /** One model call with its own timeout, then every check. */
-async function attempt(prompt, { language, maxWords, foodOk, timeoutMs }) {
+async function attempt(prompt, { language, maxWords, foodOk, transcript, timeoutMs }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await callLLM(prompt, language, maxWords, controller.signal, { foodOk });
+    return await callLLM(prompt, language, maxWords, controller.signal, { foodOk, transcript });
   } finally {
     clearTimeout(timer);
   }
@@ -133,7 +156,7 @@ async function runChain(input) {
   // 1. full prompt
   let first;
   try {
-    return success(await attempt(buildPrompt(promptInput), { language, maxWords, foodOk, timeoutMs: TIMEOUT_MS }), 'full');
+    return success(await attempt(buildPrompt(promptInput), { language, maxWords, foodOk, transcript, timeoutMs: TIMEOUT_MS }), 'full');
   } catch (err) {
     first = err;
   }
@@ -145,14 +168,14 @@ async function runChain(input) {
   try {
     const rejectedBecause = first?.rule ? describeRule(first.rule, language) : null;
     const prompt = buildShortPrompt({ ...promptInput, rejectedBecause });
-    return success(await attempt(prompt, { language, maxWords, foodOk, timeoutMs: RETRY_TIMEOUT_MS }), 'retry');
+    return success(await attempt(prompt, { language, maxWords, foodOk, transcript, timeoutMs: RETRY_TIMEOUT_MS }), 'retry');
   } catch (retryErr) {
     // 3. static library
     return fallBack(reasonOf(retryErr), retryErr);
   }
 }
 
-async function callLLM(prompt, language, maxWords, signal, { foodOk = true } = {}) {
+async function callLLM(prompt, language, maxWords, signal, { foodOk = true, transcript = '' } = {}) {
   const model = getStructuredModel();
   const chain = prompt.pipe(model);
   const raw = await chain.invoke({}, { signal });
@@ -186,6 +209,11 @@ async function callLLM(prompt, language, maxWords, signal, { foodOk = true } = {
   const parts = [parsed.validate, parsed.reassure, parsed.redirect].map(tidySentence).filter(Boolean);
   const text = parts.join(' ');
 
+  // Never correct the person: a reply may not name a different part of the day than the one they said
+  if (contradictsTime(transcript, text, language)) {
+    throw rejection('validation:time_contradiction', 'reply names a different part of the day than the patient', 'time_contradiction');
+  }
+
   // Content safety on the way out (A4): threats, distressing facts (death, illness, hospital) → fallback path
   const safety = checkTier1(text, { kind: 'reply' });
   if (!safety.ok) throw rejection('safety', `unsafe reply (${safety.category})`, 'safety');
@@ -193,4 +221,4 @@ async function callLLM(prompt, language, maxWords, signal, { foodOk = true } = {
   return { text, parts, _fallback: false, _theme: null, _reason: null };
 }
 
-module.exports = { runChain, callLLM, foodAllowed, reasonOf, tidySentence, TIMEOUT_MS, RETRY_TIMEOUT_MS, FOOD_WORDS };
+module.exports = { runChain, callLLM, foodAllowed, contradictsTime, reasonOf, tidySentence, TIMEOUT_MS, RETRY_TIMEOUT_MS, FOOD_WORDS };

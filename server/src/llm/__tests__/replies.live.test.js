@@ -7,6 +7,7 @@
  * 40 utterances (benchUtterances.js) with the 2 daily + 1 permanent notes context:
  *   - every model reply is on-topic (per-situation keyword lists with synonyms)
  *   - no single redirect phrase appears in more than 20% of replies
+ *   - greetings are not answered with the time of day (a correction)
  *   - food or drink only in hunger / thirst cases (no meal routine is within 60 minutes at 15:30)
  *   - fallback rate under 10%
  */
@@ -76,6 +77,19 @@ liveDescribe('live replies are situation-specific', () => {
     const [top, n] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
     console.log(`[live] most common redirect (${n}/${results.length}): "${top}"`);
     expect(n / results.length).toBeLessThanOrEqual(0.2);
+  });
+
+  test('greetings are never contradicted with the time of day', () => {
+    const offending = results
+      .filter(r => r.situation === 'greeting' && !r.out._fallback)
+      // echoing their own greeting is fine; naming a different part of the day corrects them
+      .filter(r => {
+        const parts = (s) => new Set(String(s).toLowerCase().match(/\b(morning|afternoon|evening|night|pagi|siang|sore|malam)\b/g) || []);
+        const said = parts(r.text);
+        return [...parts(r.out.text)].some(p => !said.has(p));
+      })
+      .map(r => `${r.lang}: "${r.text}" → "${r.out.text}"`);
+    expect(offending).toEqual([]);
   });
 
   test('food or drink only for hunger / thirst', () => {

@@ -101,6 +101,7 @@ function describeRule(rule, lang = 'en') {
     empty_field:    id ? 'ada bagian yang kosong.' : 'a part was empty.',
     foreign_script: id ? 'ada huruf asing.' : 'it contained foreign characters.',
     food_offer:     id ? 'menawarkan makanan atau minuman padahal pasien tidak lapar atau haus.' : 'it offered food or drink although the person is not hungry or thirsty.',
+    time_contradiction: id ? 'membantah waktu yang disebut pasien. Jangan sebut waktu lain.' : 'it contradicted the time of day the person named. Do not name another time.',
     safety:         id ? 'menyebut hal yang menyedihkan atau menakutkan.' : 'it mentioned something distressing or frightening.',
     empty:          id ? 'balasan kosong.' : 'the reply was empty.',
     not_object:     id ? 'bukan JSON.' : 'it was not JSON.',

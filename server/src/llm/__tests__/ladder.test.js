@@ -1,14 +1,14 @@
 /**
  * ladder.test.js — the reply ladder with a mocked model:
  *   full prompt → short retry (with the rejection reason) → static library; food/drink rule; inputs reach the
- *   prompt; reasons and stats; GET /api/health/llm.
+ *   prompt; no correcting the part of the day; reasons and stats; GET /api/health/llm.
  */
 
 jest.mock('../model', () => ({ getStructuredModel: jest.fn() }));
 
 const { RunnableLambda } = require('@langchain/core/runnables');
 const { getStructuredModel } = require('../model');
-const { runChain, foodAllowed } = require('../chain');
+const { runChain, foodAllowed, contradictsTime } = require('../chain');
 const stats = require('../fallbackStats');
 const { resetHistory, LIBRARY } = require('../fallbacks');
 
@@ -89,6 +89,33 @@ describe('the ladder', () => {
     const out = await runChain({ transcript: 'Where is my son', language: 'en', max_speech_seconds: 1 });
     expect(out).toMatchObject({ _fallback: true, _reason: 'validation:patient_cap' });
     expect(out.text.split(/\s+/).length).toBeLessThanOrEqual(15);
+  });
+});
+
+describe('never correcting the part of the day', () => {
+  const CORRECTS = { validate: 'You are saying good morning.', reassure: 'It is the afternoon now.', redirect: 'Let us enjoy some friendly company.' };
+
+  it('rejects a reply that answers a morning greeting with the afternoon, then falls back', async () => {
+    const prompts = scriptModel(CORRECTS, CORRECTS);
+    const out = await runChain({ transcript: 'Good morning', language: 'en', timeOfDay: '15:30' });
+    expect(out).toMatchObject({ _fallback: true, _reason: 'validation:time_contradiction' });
+    expect(prompts[1]).toMatch(/contradicted the time of day/);
+    expect(contradictsTime('Good morning', out.text, 'en')).toBe(false);
+  });
+
+  it('accepts a reply that keeps their part of the day', async () => {
+    scriptModel({ ...CORRECTS, reassure: 'I am here with you this morning.' });
+    const out = await runChain({ transcript: 'Good morning', language: 'en', timeOfDay: '15:30' });
+    expect(out._fallback).toBe(false);
+  });
+
+  it('only applies when the person named a part of the day', () => {
+    expect(contradictsTime('Selamat pagi', 'Hari sudah sore dan aku di sini.', 'id')).toBe(true);
+    expect(contradictsTime('Selamat pagi', 'Kamu menyapa pagi dengan ramah.', 'id')).toBe(false);
+    expect(contradictsTime('Aku lapar', 'Sekarang jam setengah empat sore.', 'id')).toBe(false);
+    expect(contradictsTime('Good evening', "It's a calm night, tonight I'm here.", 'en')).toBe(true);
+    // "sore" is pain in English, not a time of day
+    expect(contradictsTime('My knee is sore this morning', 'Your knee feels sore this morning.', 'en')).toBe(false);
   });
 });
 

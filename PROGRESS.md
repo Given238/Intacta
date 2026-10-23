@@ -1,6 +1,6 @@
 # Intacta — Progress Status
 
-Last updated: 2026-10-21
+Last updated: 2026-10-23
 Branch: `wip-recovery` (Phase 3 terminal + 3a/3b backend committed in `ccba0fc`; portal C1–C2 committed per screen)
 
 ---
@@ -766,6 +766,39 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
   notes used as "reassure" for unrelated topics, 2 invented facts ("water is ready on the table", "the soup is already here"),
   lowercase fragments. A final benchmark after that fix was started but exited with an error (not investigated; usage limit); re-run `npm run llm:bench -- --timeout 60000`.
 
+**Re-run 2026-10-23 (the NEXT item; same 40 utterances × 2 contexts, `gemini-3.5-flash-lite`)**
+- Network check first: raw "Say OK." calls 1.2 / 4.9 / 1.4 s (connect ~0.06 s), far better than 2026-10-21 but still unstable.
+
+| Run | Budget | Fallback rate | Reasons | First-attempt rejections | p50 / p95 |
+|---|---|---|---|---|---|
+| Post-`da34c8c`, diagnostic | 60 s + 2 s retry | **2.5% (2/80)** | timeout 2 (both ~62 s hangs) | word_cap 10 (all fixed by the retry) | 1175 / 56141 ms |
+| Post-`da34c8c`, configured | 4000 + 2000 ms retry | 70% (56/80) | timeout 56 | n/a | 6014 / 6030 ms |
+| After the prompt + time fix below, diagnostic | 60 s + 2 s retry | 13.8% (11/80) | timeout 11 | (not counted) | 7352 / 46483 ms |
+
+- The latency is bimodal: in the fast run 40/80 calls finished ≤1.2 s and 60/80 ≤2.5 s, the other ~20 took 6–60 s. The
+  configured run, ~15 min later, hit the slow mode on most calls. **Every fallback in all three runs is a timeout; there are
+  0 validation or safety fallbacks.** The <10% target at the configured budget is still NOT demonstrated from this machine.
+- Reading the replies (diagnostic run) found guardrail problems the validator could not see:
+  (1) **corrections**: "Selamat pagi" → "Pagi sudah lewat dan kini hari sudah sore", "Good morning" → "It is the afternoon now";
+  (2) **invented facts with empty notes**: "Suamimu adalah orang yang baik…", "Your daughter loves you very much",
+  "Timothy saat ini tidak ada di sini"; (3) notes used off-topic: "Timothy pulang jam 5" for pain, anger, loneliness, the husband.
+- Fixes: `llm/prompts.js` (both languages, full + short, still no example sentences): a note about another person or need is
+  not their topic; never describe/praise someone the notes don't describe or say whether someone is here; never contradict
+  the time, place or a person they expect; no time of day in reply to a greeting. `llm/chain.js`: new rejection
+  `validation:time_contradiction` (the patient named a part of the day and the reply names a different one; EN/ID word
+  lists, "sore" is only a time word in ID) → retry with the reason → static library (which has no time words).
+  Tests: `ladder.test.js` (3 new), live check "greetings are never contradicted" in `replies.live.test.js`.
+- After the fix: invented praise gone in the 80-call run; greeting spot-check 4/4 without a correction (1.0–2.5 s), and they
+  now go along with "morning" (validating). **Still open**: ID notes still pull "Timothy pulang jam 5" into unrelated topics
+  (pain, anger, husband); one "A cool glass of water is here for you" (claims something is ready); small invented details
+  ("Pagi ini cerah"); an ID "suamiku" instead of "suamimu". Prompt-only fixes have not removed the off-topic notes; a
+  server-side relevance check would be the next step (decision).
+- **Live suites** (`RUN_LIVE_LLM_TESTS=1`, `LIVE_LLM_TIMEOUT_MS=60000`, before the time fix): factuality all passed;
+  replies.live 4/6: fallback <10% passed, redirect variety passed, food only for hunger/thirst passed;
+  **failed**: on-topic (1: "Thank you, dear" → generic "You are feeling so kind today") and the new greeting check (ID
+  "Selamat pagi" → "Hari sudah sore…"; its EN hit was a false positive, the check now ignores the patient's own part of the day).
+  Not re-run after the time fix (each run is ~4 min of API calls).
+
 ### Part C: type scale + responsive layouts (DONE, committed locally)
 **C1 type system**
 - Tokens once in `client/src/index.css` (@theme): `text-title` 22-26/700, `text-card` 16-18/600, `text-body` 15-16/400/1.5,
@@ -879,7 +912,9 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 ---
 
 ## NEXT
-- Re-run `npm run llm:bench -- --timeout 60000` and `RUN_LIVE_LLM_TESTS=1 npm test` on a normal network; record results.
+- Re-run `RUN_LIVE_LLM_TESTS=1 LIVE_LLM_TIMEOUT_MS=60000 npx jest replies.live` after the 2026-10-23 time fix (in `server/`).
+- Decide: server-side check that a reassure note is about the patient's topic (prompt-only fixes did not stop off-topic notes, see Part B re-run).
+- The <10% fallback target at the configured budget needs a stable network (or a decision on FR-4.3.2 / the model).
 - Decide FR-4.3.2: keep the 2500 ms + 2 s ladder or restore 1.2 s (see Part B).
 - Re-run the live Tier 2 safety check once the Gemini API is reachable at normal speed (see Part A).
 - Tablet test of Parts A–C (lists under "Voice and routines"); restart `npm run dev` first so `/vad/` assets are served.
