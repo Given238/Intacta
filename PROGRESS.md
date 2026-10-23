@@ -1,7 +1,7 @@
 # Intacta — Progress Status
 
 Last updated: 2026-10-23
-Branch: `wip-recovery` (Phase 3 terminal + 3a/3b backend committed in `ccba0fc`; portal C1–C2 committed per screen)
+Branch: `phase-7-safety-replies-layout` (local commits only; see "Content safety gate fix")
 
 ---
 
@@ -854,6 +854,31 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
   iPad Safari audio + mic + VAD, echo, real routines on/offline).
 - **Decisions needed**: TTS model (flash meets 500 ms), STT latency vs 800 ms, the 7:1 contrast and clock-mode
   targets (items 19 and the "Known visual diffs"), spurious missed rows 50/51.
+
+---
+
+## Content safety gate fix (2026-10-23, branch `phase-7-safety-replies-layout`, local commits only)
+
+### Step 1: diagnosis ("besok engkau mati" was accepted in Context)
+- Script: `npm run safety:try "<text>" -- --kind context --lang id` (`server/src/llm/safetyCli.js`) prints Tier 1, the
+  raw classifier response (no timeout), the gate timeout and the final result.
+- Result for `"besok engkau mati"`, kind=context, id, model `gemini-3.5-flash-lite` (no `GEMINI_SAFETY_MODEL` set):
+  - Tier 1: `{ok:true}`. No rule matches: the death rule needs `akan|bakal|sebentar lagi` between the pronoun and
+    `mati` ("engkau akan mati"), `mati (kau|kamu)` only matches the reversed order, and the family-death rule only applies
+    to spoken kinds.
+  - Raw classifier: `{safe:false, category:"threat_violence", confidence:1}` in **2390-2596 ms**.
+  - Gate: `[safety] classifier failed (classifier timeout); Tier 1 rules decided` → final `{ok:true}`. In a 5-run
+    repeat, 4 of 5 calls timed out at 2.5 s and were allowed; the 1 call that came back in time (954 ms) blocked it.
+- **Reason: the classifier failed and the gate failed OPEN.** It was wired in, the threshold was fine (confidence 1 ≥ 0.7),
+  the model name was valid, and the prompt worked. But the 2.5 s timeout is shorter than this model's usual latency from
+  here, and `classify()` turns any timeout/error/invalid shape into "Tier 1 decides". Tier 1 is a word list with gaps.
+  Contributing factor: the `kind=context` prompt tells the model that sad background facts are acceptable.
+- Entry points (all call `safetyGate.blockIfUnsafe` before saving/emitting): POST + PUT `/api/context-items`
+  (`contextItemsController.js`), routine create + update (`routinesController.js`, title/audio_script/display_text),
+  `broadcast:message` and `voice:test` (`socket/index.js`). If the gate itself throws, none of them proceeds (context and
+  sockets catch → 500 / ack error; routines have no try/catch, so the request fails unhandled, not saved). But a
+  classifier error or timeout never reaches them as a throw: it is swallowed in `contentSafety.classify()` and becomes
+  "allowed".
 
 ---
 
