@@ -15,8 +15,8 @@ import PortalToast  from '../components/PortalToast'
 import dividerSvg   from '../../assets/portal-divider.svg'
 import { pairWithCode } from '../portalApi'
 import { getSession, setSession, clearSession } from '../session'
+import { CODE_LENGTH, toRawCode, takeCodeParam } from '../pairCode'
 
-const CODE_LENGTH = 6
 const SEPARATOR   = ' - '
 
 const ERROR_KEYS = {
@@ -28,18 +28,24 @@ const ERROR_KEYS = {
   network:       'network',
 }
 
-const toRaw = (value) => value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, CODE_LENGTH)
 const toDisplay = (raw) => (raw.length > 3 ? `${raw.slice(0, 3)}${SEPARATOR}${raw.slice(3)}` : raw)
 
 export default function Pair() {
   const { t }    = useTranslation()
   const navigate = useNavigate()
   // ?link=1 (Settings → "Pair New Tablet"): link the tablet to the signed-in caregiver's patient
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const linkToken = params.get('link') === '1' ? getSession()?.token : null
-  const [code,    setCode]    = useState('')
+  // ?code= (the tablet's QR code) pre-fills the input; never submitted automatically
+  const [code,    setCode]    = useState(() => takeCodeParam(params.toString()).code)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
+
+  // Clear ?code= from the address bar once read
+  useEffect(() => {
+    const { had, rest } = takeCodeParam(params.toString())
+    if (had) setParams(new URLSearchParams(rest), { replace: true })
+  }, [params, setParams])
 
   // Toast clears itself after a few seconds
   useEffect(() => {
@@ -49,7 +55,7 @@ export default function Pair() {
   }, [error])
 
   const handleChange = (e) => {
-    let raw = toRaw(e.target.value)
+    let raw = toRawCode(e.target.value)
     // Backspace over the " - " separator removes the character before it
     if (raw === code && e.target.value.length < toDisplay(code).length) raw = raw.slice(0, -1)
     setCode(raw)

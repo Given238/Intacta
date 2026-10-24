@@ -90,7 +90,12 @@ ALL patient-facing LLM output:
 - Terminal localStorage is limited to: device_token and the 24h context cache.
 
 ## Pairing Flow (code-based, replaces QR)
-1. Terminal "Caregiver mode → Enter" calls `POST /api/devices/register` → `{device_id, device_token, code}`. Code is 6 chars (shown like `dev-d4y`), TTL 10 min, single use, regenerates on expiry.
+1. Terminal header "▶ Enable / caregiver connection" (id: "Aktifkan / koneksi caregiver") calls `POST /api/devices/register` →
+   `{device_id, device_token, code, expires_at}` when there is no valid code. Code is 6 chars, TTL 10 min, single use; "Get a new code" regenerates.
+   It and "Authentication code" open/close the SAME "Connect a caregiver" popup (`components/ConnectCard.jsx`): code, "On your phone, open
+   {window.location.origin}/portal and enter this code", a QR code for `{origin}/portal/pair?code=XXXXXX`, expiry countdown, regenerate.
+   The terminal never switches to a caregiver view (never call it "Caregiver mode"). The pair screen pre-fills `?code=` (never auto-submits)
+   and clears it from the URL (`portal/pairCode.js`).
 2. Caregiver enters the code on the phone → `POST /api/devices/pair {code}`: PUBLIC (no login), rate-limited 5/min/IP.
    No Authorization header → a new caregiver (email/password NULL) + patient are created (or the device's existing patient is kept).
    With a caregiver JWT ("Pair New Tablet") → the device links to that caregiver's patient. A bad JWT → 401.

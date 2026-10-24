@@ -56,6 +56,7 @@ export default function App() {
   const [patientId,   setPatientId]   = useState(() => localStorage.getItem('patient_id') || null)
   const [language,    setLanguage]    = useState(() => localStorage.getItem('terminal_language') || 'en')
   const [pairingCode, setPairingCode] = useState(null)
+  const [pairingExpiresAt, setPairingExpiresAt] = useState(null) // ms epoch, from the register response
   const [regLoading, setRegLoading]  = useState(false)
   const [regError,   setRegError]   = useState(null)
   const [context,    setContext]     = useState(null)
@@ -169,6 +170,8 @@ export default function App() {
       }
       const data = await res.json()
       setPairingCode(data.code)
+      const exp = Date.parse(data.expires_at)
+      setPairingExpiresAt(Number.isFinite(exp) ? exp : null)
       localStorage.setItem('device_token', data.device_token)
       setDeviceToken(data.device_token)
     } catch (e) {
@@ -284,7 +287,8 @@ export default function App() {
       <TerminalRoutes
         language={language}
         pairingCode={pairingCode}
-        onEnterCaregiver={handleRegisterDevice}
+        pairingExpiresAt={pairingExpiresAt}
+        onRequestCode={handleRegisterDevice}
         regLoading={regLoading}
         regError={regError}
         context={context}
@@ -306,7 +310,7 @@ export default function App() {
 }
 
 /* ── Routes sub-component (inside BrowserRouter) ── */
-function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, regError, context, phase, reply, highlightIndex, say, ttsError, micState, micInfo, micUnavailable, navigateRef, socket, deviceToken, patientId }) {
+function TerminalRoutes({ language, pairingCode, pairingExpiresAt, onRequestCode, regLoading, regError, context, phase, reply, highlightIndex, say, ttsError, micState, micInfo, micUnavailable, navigateRef, socket, deviceToken, patientId }) {
   const navigate = useNavigate()
   const { typedOpen, setTypedOpen, debugOpen } = useDevShortcuts()
   // No microphone (denied / missing): the typed input is the way to talk to the terminal.
@@ -326,7 +330,8 @@ function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, r
             <Home
               language={language}
               pairingCode={pairingCode}
-              onEnterCaregiver={onEnterCaregiver}
+              pairingExpiresAt={pairingExpiresAt}
+              onRequestCode={onRequestCode}
               regLoading={regLoading}
               regError={regError}
               phase={phase}
@@ -342,7 +347,7 @@ function TerminalRoutes({ language, pairingCode, onEnterCaregiver, regLoading, r
           path="/terminal/pairing"
           element={
             <TerminalStage header={<Header language={language} />}>
-              <Pairing code={pairingCode} onRegenerate={onEnterCaregiver} />
+              <Pairing code={pairingCode} expiresAt={pairingExpiresAt} loading={regLoading} onRegenerate={onRequestCode} />
             </TerminalStage>
           }
         />

@@ -2,15 +2,18 @@
  * Header — teal bar of the terminal (Figma 1:2), fluid.
  *
  * Wide (landscape, ≥900px): logo, "Intacta" wordmark + tagline on the left; on the right the two Baloo Da 2
- * buttons "▶ Enter / Caregiver mode" | "› Authentication code", the code card (62:123) opens under the second.
+ * buttons "▶ Enable / caregiver connection" | "› Authentication code". Both open and close the same
+ * "Connect a caregiver" popup (code card, Figma 62:123) under the buttons; the first also requests a code
+ * when there is no valid one. Nothing here switches the screen to a caregiver view.
  * Compact (portrait or <900px): logo + wordmark, one menu button that opens a popover with both actions;
- * "Authentication code" shows the code inside the popover.
+ * the connection card opens inside that popover.
  * CSS in terminal.css (.term-header*); sizes scale with the header height.
  */
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Menu, X } from 'lucide-react'
 import logoSvg from '../assets/logo.svg'
+import ConnectCard from './ConnectCard'
 
 // Play triangle (Figma 62:119)
 function PlayTriangle({ size = 18 }) {
@@ -30,47 +33,46 @@ function ChevronIcon({ size = 18 }) {
   )
 }
 
-function CodeCard({ pairingCode }) {
-  const { t } = useTranslation()
-  return (
-    <>
-      <p className="term-popover-title">{t('thisIsYourCode')}</p>
-      <div className="term-code-pill">{pairingCode || '------'}</div>
-      <p className="term-popover-note">{t('useThisToConnect')}</p>
-    </>
-  )
-}
-
 export default function Header({
-  showPopup,       // code card (wide layout)
-  onAuthCode,      // toggles the code card / opens the pairing screen
+  showPopup,         // the "Connect a caregiver" popup (wide: under the buttons; compact: inside the menu)
+  onAuthCode,        // toggles the popup
+  onEnableConnection, // toggles the popup and requests a code when there is no valid one
+  onClosePopup,
   pairingCode,
-  onEnterCaregiver,
+  pairingExpiresAt,
+  onRegenerate,
   regLoading,
 }) {
   const { t } = useTranslation()
   const [menuOpen, setMenuOpen] = useState(false)
-  const [menuCode, setMenuCode] = useState(false)
-  const menuRef = useRef(null)
+  const rowRef = useRef(null)
 
-  // Close the compact menu on an outside tap or Escape
+  // Close the compact menu and the popup on an outside tap or Escape
   useEffect(() => {
-    if (!menuOpen) return
-    const onDown = (e) => { if (!menuRef.current?.contains(e.target)) setMenuOpen(false) }
-    const onKey = (e) => { if (e.key === 'Escape') setMenuOpen(false) }
+    if (!menuOpen && !showPopup) return
+    const close = () => { setMenuOpen(false); onClosePopup?.() }
+    const onDown = (e) => { if (!rowRef.current?.contains(e.target)) close() }
+    const onKey = (e) => { if (e.key === 'Escape') close() }
     document.addEventListener('pointerdown', onDown)
     document.addEventListener('keydown', onKey)
     return () => {
       document.removeEventListener('pointerdown', onDown)
       document.removeEventListener('keydown', onKey)
     }
-  }, [menuOpen])
+  }, [menuOpen, showPopup, onClosePopup])
 
-  const toggleMenu = () => { setMenuCode(false); setMenuOpen(o => !o) }
+  const toggleMenu = () => {
+    if (menuOpen) onClosePopup?.()
+    setMenuOpen(o => !o)
+  }
+
+  const card = (
+    <ConnectCard code={pairingCode} expiresAt={pairingExpiresAt} loading={regLoading} onRegenerate={onRegenerate} />
+  )
 
   return (
     <header className="term-header">
-      <div className="term-header-row" ref={menuRef}>
+      <div className="term-header-row" ref={rowRef}>
         {/* Logo (node 31:4) + wordmark */}
         <img src={logoSvg} alt="" className="term-logo" />
         <div className="term-brand">
@@ -78,27 +80,39 @@ export default function Header({
           <span className="term-tagline">{t('tagline')}</span>
         </div>
 
-        {/* ── Wide: the two Figma buttons ── */}
+        {/* ── Wide: the two Figma buttons, both open the same popup ── */}
         <div className="term-actions">
-          <button type="button" className="term-action" onClick={onEnterCaregiver} disabled={regLoading} aria-label={t('caregiverMode')}>
+          <button
+            type="button"
+            className="term-action"
+            onClick={onEnableConnection}
+            aria-expanded={!!showPopup}
+            aria-controls="term-connect"
+            aria-label={`${t('enable')} ${t('caregiverConnection')}`}
+          >
             <PlayTriangle />
             <span className="term-action-lines">
-              <span className="light">{t('enter')}</span>
-              <span>{t('caregiverMode')}</span>
+              <span className="light">{t('enable')}</span>
+              <span>{t('caregiverConnection')}</span>
             </span>
           </button>
           <span className="term-divider" aria-hidden="true" />
-          <div style={{ position: 'relative' }}>
-            <button type="button" className="term-action" onClick={onAuthCode} aria-expanded={!!showPopup} aria-label={t('authCode')}>
-              <ChevronIcon />
-              {t('authCode')}
-            </button>
-            {showPopup && (
-              <div className="term-popover" role="dialog" aria-label={t('thisIsYourCode')}>
-                <CodeCard pairingCode={pairingCode} />
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            className="term-action"
+            onClick={onAuthCode}
+            aria-expanded={!!showPopup}
+            aria-controls="term-connect"
+            aria-label={t('authCode')}
+          >
+            <ChevronIcon />
+            {t('authCode')}
+          </button>
+          {showPopup && (
+            <div id="term-connect" className="term-popover" role="dialog" aria-label={t('connect.title')}>
+              {card}
+            </div>
+          )}
         </div>
 
         {/* ── Compact: one menu ── */}
@@ -119,23 +133,23 @@ export default function Header({
               type="button"
               role="menuitem"
               className="term-menu-item"
-              disabled={regLoading}
-              onClick={() => { setMenuOpen(false); onEnterCaregiver?.() }}
+              aria-expanded={!!showPopup}
+              onClick={onEnableConnection}
             >
-              <PlayTriangle /> {t('caregiverMode')}
+              <PlayTriangle /> {t('enable')} {t('caregiverConnection')}
             </button>
             <button
               type="button"
               role="menuitem"
               className="term-menu-item"
-              aria-expanded={menuCode}
-              onClick={() => (pairingCode ? (setMenuOpen(false), onAuthCode?.()) : setMenuCode(c => !c))}
+              aria-expanded={!!showPopup}
+              onClick={onAuthCode}
             >
               <ChevronIcon /> {t('authCode')}
             </button>
-            {menuCode && (
-              <div className="px-[12px] pb-[8px]">
-                <CodeCard pairingCode={pairingCode} />
+            {showPopup && (
+              <div className="px-[12px] pb-[8px]" role="group" aria-label={t('connect.title')}>
+                {card}
               </div>
             )}
           </div>

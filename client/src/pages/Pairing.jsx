@@ -7,11 +7,12 @@ import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import WaveformBars from '../components/WaveformBars'
+import ConnectCard from '../components/ConnectCard'
 import { TerminalBody } from '../components/TerminalStage'
 import { TEXT_SHADOW } from '../lib/contrast'
 import { LINE_HEIGHT } from '../lib/replyLayout'
 
-export default function Pairing({ code, onRegenerate }) {
+export default function Pairing({ code, expiresAt, loading, onRegenerate }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
 
@@ -33,18 +34,8 @@ export default function Pairing({ code, onRegenerate }) {
       />
 
       {/* ── Pairing code panel ── */}
-      <div className="term-pair-panel term-popover" style={{ position: 'absolute', top: 12 }} role="alertdialog" aria-label={t('thisIsYourCode')}>
-        <p className="term-popover-title" style={{ fontFamily: '"Baloo Da 2", cursive', fontSize: 22, fontWeight: 800 }}>{t('authCode')}</p>
-        <p className="term-popover-note">{t('thisIsYourCode')}</p>
-        <div className="term-code-pill">{code}</div>
-        <p className="term-popover-note">{t('useThisToConnect')}</p>
-        <button
-          type="button"
-          onClick={onRegenerate}
-          className="mx-auto mt-[6px] block min-h-[44px] px-3 text-[14px] text-white/80 underline"
-        >
-          {t('regenerate')}
-        </button>
+      <div className="term-pair-panel term-popover" style={{ position: 'absolute', top: 12 }} role="alertdialog" aria-label={t('connect.title')}>
+        <ConnectCard code={code} expiresAt={expiresAt} loading={loading} onRegenerate={onRegenerate} />
       </div>
 
       {/* Dismiss */}

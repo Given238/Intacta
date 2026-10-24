@@ -7,8 +7,7 @@
  * place via App's presentReply → {phase, reply}; the waveform moves only while phase is 'speaking'.
  * TODO(clock): the clock mode screen was removed for now; bring it back as an idle state of this screen.
  */
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertCircle } from 'lucide-react'
 
@@ -20,7 +19,8 @@ import ReplyText     from '../components/ReplyText'
 export default function Home({
   language,
   pairingCode,
-  onEnterCaregiver,
+  pairingExpiresAt,
+  onRequestCode,
   regLoading,
   regError,
   phase = 'idle',
@@ -29,21 +29,24 @@ export default function Home({
   typedSlot = null,
 }) {
   const { t }   = useTranslation()
-  const navigate = useNavigate()
   const [showPopup, setShowPopup] = useState(false)
 
-  const handleEnterCaregiver = async () => {
-    setShowPopup(false)
-    await onEnterCaregiver()
+  // "Enable caregiver connection": open/close the popup; ask for a code when there is no valid one
+  const handleEnableConnection = () => {
+    if (showPopup) { setShowPopup(false); return }
+    setShowPopup(true)
+    const valid = pairingCode && (!pairingExpiresAt || pairingExpiresAt > Date.now())
+    if (!valid && !regLoading) onRequestCode()
   }
+  const handleAuthCode = () => setShowPopup(prev => !prev)
+  const closePopup = useCallback(() => setShowPopup(false), [])
 
-  const handleAuthCode = () => {
-    if (pairingCode) {
-      navigate('/terminal/pairing')
-    } else {
-      setShowPopup(prev => !prev)
-    }
-  }
+  // Paired (the code is cleared on device:paired): close the popup
+  const prevCode = useRef(pairingCode)
+  useEffect(() => {
+    if (prevCode.current && !pairingCode) setShowPopup(false)
+    prevCode.current = pairingCode
+  }, [pairingCode])
 
   return (
     <TerminalStage
@@ -52,8 +55,11 @@ export default function Home({
           language={language}
           showPopup={showPopup}
           onAuthCode={handleAuthCode}
+          onEnableConnection={handleEnableConnection}
+          onClosePopup={closePopup}
           pairingCode={pairingCode}
-          onEnterCaregiver={handleEnterCaregiver}
+          pairingExpiresAt={pairingExpiresAt}
+          onRegenerate={onRequestCode}
           regLoading={regLoading}
         />
       }

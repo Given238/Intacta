@@ -1,6 +1,6 @@
 # Intacta — Progress Status
 
-Last updated: 2026-10-23
+Last updated: 2026-10-24
 Branch: `phase-7-safety-replies-layout` (local commits only; see "Content safety gate fix")
 
 ---
@@ -938,6 +938,26 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 
 ---
 
+## Terminal connection popup + start menu (2026-10-24, branch `phase-7-safety-replies-layout`, local commits only)
+
+### Part 1: "Enable caregiver connection" + "Connect a caregiver" popup (DONE)
+- Header button renamed "▶ Enable / caregiver connection" (id "Aktifkan / koneksi caregiver"; the app's id term for
+  caregiver is "caregiver"). Keys `enable` + `caregiverConnection` replace `enter` + `caregiverMode`; unused
+  `thisIsYourCode`, `useThisToConnect`, `pairingExpired` removed; Settings logout text updated.
+- Both header buttons (and both compact-menu items) open/close ONE popup (`client/src/components/ConnectCard.jsx`):
+  title "Connect a caregiver", the code, "On your phone, open {origin}/portal and enter this code" (origin from
+  `window.location.origin`), QR code for `{origin}/portal/pair?code=XXXXXX` (`qrcode-generator`, rendered as an SVG path),
+  "Expires in m:ss" from the register response's `expires_at`, "Get a new code". "Enable…" registers only when there is no
+  valid code. Outside tap / Escape closes it; it closes itself on `device:paired`. "Authentication code" no longer
+  navigates to `/terminal/pairing` (route kept, it shows the same card).
+- Pair screen (`portal/pages/Pair.jsx` + `portal/pairCode.js`): `?code=` pre-fills the input (normalised, max 6), never
+  auto-submits, and is removed from the URL (other params such as `link=1` stay).
+- Tests: `client/src/lib/__tests__/pairCode.test.js`, `i18nKeys.test.js` (en/id same keys, required keys, no "Caregiver mode").
+- Checked with Playwright at 1194x834, 768x1024, 360x740 (popup visible, no horizontal overflow, toggles closed from the
+  other button) and the pair prefill (`?code=abc234` → "ABC - 234", URL cleared).
+
+---
+
 ## Known bugs / open items
 1. **Run `npm run db:seed`** and smoke-test the 3b endpoints (migrate 001–004 has now run against `DATABASE_URL`). (CLAUDE.md says
    `db:migrate`; the script is named `migrate`.)
@@ -954,7 +974,7 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
    expects the old context shape (visitor_name/arrival_time/passive_cue) and does not handle `settings:sync`,
    `broadcast:message`, `voice:test`.
 9. ~~Pairing requires a caregiver JWT~~ fixed 2026-10-10 (public code-only pairing, see below). Open: `register`
-   still resets `devices.patient_id` to NULL, so re-entering Caregiver mode on a paired tablet unpairs it and the
+   still resets `devices.patient_id` to NULL, so requesting a new code (Enable caregiver connection) on a paired tablet unpairs it and the
    next pair creates a new caregiver + patient. The pair service already reuses a device's existing patient if
    register stops resetting it; decide which behaviour the demo wants.
 10. ~~No routine scheduler~~ done 2026-10-12 (Part C). Open: a routine due in the last minutes before midnight
@@ -983,7 +1003,7 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 
 ## Client state
 - `npx vite build` succeeds; dev server starts.
-- Routes: `/terminal`, `/terminal/pairing`, `*` → `/terminal`. Start gate first. Replies render on `/terminal` (no response page).
+- Routes: `/terminal`, `/terminal/pairing` (same "Connect a caregiver" card as the header popup), `*` → `/terminal`. Start gate first. Replies render on `/terminal` (no response page).
 - Typed input toggles with ` (Esc closes), debug overlay with ~ (Shift+`); keys ignored while a field is focused.
   `?dev=1` shows both permanently. Old Ctrl+Shift+T/D dropped (Chrome intercepts them). Overlay shows route, socket,
   reply phase, language, token/patient presence, context sync; bottom-left since 2026-10-12. Shortcuts in `docs/demo-script.md`.

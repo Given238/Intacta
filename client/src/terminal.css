@@ -69,7 +69,7 @@
 }
 
 /* Wide header buttons (Figma: Baloo Da 2 25px, divider between) */
-.term-actions { display: none; margin-left: auto; align-items: center; gap: clamp(16px, 3vw, 38px); }
+.term-actions { position: relative; display: none; margin-left: auto; align-items: center; gap: clamp(16px, 3vw, 38px); }
 .term-action {
   position: relative;
   display: flex;
@@ -123,7 +123,9 @@
   top: calc(100% + 8px);
   right: 0;
   z-index: 20;
-  width: min(260px, calc(100vw - 24px));
+  width: min(300px, calc(100vw - 24px));
+  max-height: calc(100dvh - var(--term-header-h) - 24px);
+  overflow-y: auto;
   padding: 16px;
   border-radius: 16px;
   background: #137ba6;
@@ -135,7 +137,9 @@
   top: calc(100% - 4px);
   right: var(--term-pad-x);
   z-index: 20;
-  width: min(300px, calc(100vw - 24px));
+  width: min(320px, calc(100vw - 24px));
+  max-height: calc(100dvh - var(--term-header-h) - 16px);
+  overflow-y: auto;
   padding: 8px;
   border-radius: 16px;
   background: #137ba6;
@@ -175,6 +179,10 @@
 }
 .term-popover-title { margin: 0; font-size: 16px; font-weight: 600; text-align: center; }
 .term-popover-note { margin: 0; font-size: 13px; font-weight: 400; line-height: 1.4; text-align: center; color: rgba(255, 255, 255, 0.85); }
+/* "Connect a caregiver": the portal address, QR code and countdown */
+.term-connect-url { font-weight: 700; color: #ffffff; overflow-wrap: anywhere; }
+.term-connect-expiry { font-variant-numeric: tabular-nums; }
+.term-qr { display: block; width: 132px; height: 132px; margin: 10px auto 0; border-radius: 8px; }
 
 /* ── Main area ────────────────────────────────────────────────────────────── */
 .term-main {
