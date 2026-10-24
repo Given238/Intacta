@@ -956,6 +956,28 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 - Checked with Playwright at 1194x834, 768x1024, 360x740 (popup visible, no horizontal overflow, toggles closed from the
   other button) and the pair prefill (`?code=abc234` → "ABC - 234", URL cleared).
 
+### Part 2: start menu + mode selection (DONE)
+- `/` is a start screen (`client/src/pages/StartMenu.jsx`), mounted by `client/src/Root.jsx` (`main.jsx` only renders Root):
+  "Who is using this device?", "Patient tablet" → `/terminal`, "Caregiver" → `/portal`, EN/ID toggle, "Remember this choice
+  on this device" (default on). Cards side by side from 700px.
+- Mode memory + routing in `client/src/lib/startMode.js` (`intacta_mode` = `{mode}`; `resolveStart`; `goToModeChooser`).
+  Remembered mode + no `?choose=1` → straight to `/terminal` or `/portal`; direct links unaffected.
+- Switching: hold the terminal logo 3 s (`lib/longPress.js` + `hooks/useLongPress.js`, pointer events, `touch-action: none` on
+  the logo) → `components/SwitchModeSheet.jsx`; portal Settings → Account & Security → "Change mode". Both go to `/?choose=1`,
+  keeping `device_token` and `portal_session`.
+- Audio: the "Patient tablet" tap calls `unlockAudio()` + `requestMic()` and passes them to `<App boot>` (no reload), so the
+  Start gate is skipped; `unlockAudio()` now resolves false on NotAllowedError and App then shows the gate again.
+- Tests: `startMode.test.js` (redirect, `?choose=1`, direct links, storage only `{mode}`, blocked storage), `longPress.test.js`
+  (3 s, early release / tap cancels, restart), `i18nKeys.test.js` extended. Client: 9 files, 101 tests.
+- Playwright (Chrome, `--autoplay-policy=user-gesture-required`, fake mic): start screen at 360x740, 768x1024, 1194x834,
+  1920x1080 in EN and ID has no horizontal overflow; first Tab focuses "Patient tablet" with a ring; remembered patient/caregiver
+  redirect, `?choose=1` shows the menu, direct `/terminal` and `/portal` keep working and keep the stored mode; start → Patient
+  tablet: no gate, the silent unlock and a reply both play (`play()` resolved), mic track live → stopped while speaking and in
+  the cooldown → live again; logo tap / 2 s hold do nothing, 3 s hold (mouse and touch) opens the sheet, Cancel closes it,
+  Switch → `/?choose=1` with the mode cleared and `device_token` kept; direct `/terminal` still shows the gate; Caregiver with
+  the box unchecked → `/portal/pair`, nothing stored.
+- Not checked visually: the portal Settings "Change mode" row (Settings needs the backend); not tried on a real tablet/iOS.
+
 ---
 
 ## Known bugs / open items
@@ -1003,7 +1025,7 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 
 ## Client state
 - `npx vite build` succeeds; dev server starts.
-- Routes: `/terminal`, `/terminal/pairing` (same "Connect a caregiver" card as the header popup), `*` → `/terminal`. Start gate first. Replies render on `/terminal` (no response page).
+- Routes: `/` start menu (see "Terminal connection popup + start menu"), `/terminal`, `/terminal/pairing` (same "Connect a caregiver" card as the header popup), `*` → `/terminal`. Start gate first on direct loads. Replies render on `/terminal` (no response page).
 - Typed input toggles with ` (Esc closes), debug overlay with ~ (Shift+`); keys ignored while a field is focused.
   `?dev=1` shows both permanently. Old Ctrl+Shift+T/D dropped (Chrome intercepts them). Overlay shows route, socket,
   reply phase, language, token/patient presence, context sync; bottom-left since 2026-10-12. Shortcuts in `docs/demo-script.md`.
@@ -1013,6 +1035,10 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 ---
 
 ## NEXT
+- Fix the debug overlay crash: pressing ~ (or `?dev=1`) on the terminal throws `replyMeta is not defined` (`App.jsx`:
+  `DebugOverlay replyMeta={replyMeta}` inside `TerminalRoutes`, which never receives `replyMeta`), so the error boundary
+  replaces the screen. Pre-existing; found during the 2026-10-24 checks, not fixed (out of scope).
+- Tablet/iOS check of the start menu → terminal audio handoff and the 3 s logo hold.
 - Re-run `RUN_LIVE_LLM_TESTS=1 LIVE_LLM_TIMEOUT_MS=60000 npx jest replies.live` after the 2026-10-23 time fix (in `server/`).
 - Decide: server-side check that a reassure note is about the patient's topic (prompt-only fixes did not stop off-topic notes, see Part B re-run).
 - The <10% fallback target at the configured budget needs a stable network (or a decision on FR-4.3.2 / the model).

@@ -15,6 +15,8 @@ import TerminalStage, { TerminalBody } from '../components/TerminalStage'
 import Header         from '../components/Header'
 import WaveformBars   from '../components/WaveformBars'
 import ReplyText     from '../components/ReplyText'
+import SwitchModeSheet from '../components/SwitchModeSheet'
+import { goToModeChooser } from '../lib/startMode'
 
 export default function Home({
   language,
@@ -41,6 +43,11 @@ export default function Home({
   const handleAuthCode = () => setShowPopup(prev => !prev)
   const closePopup = useCallback(() => setShowPopup(false), [])
 
+  // Hold the logo 3 s → "Switch mode?" (no visible switch button on the patient screen)
+  const [switchOpen, setSwitchOpen] = useState(false)
+  const openSwitch = useCallback(() => { setShowPopup(false); setSwitchOpen(true) }, [])
+  const closeSwitch = useCallback(() => setSwitchOpen(false), [])
+
   // Paired (the code is cleared on device:paired): close the popup
   const prevCode = useRef(pairingCode)
   useEffect(() => {
@@ -61,6 +68,7 @@ export default function Home({
           pairingExpiresAt={pairingExpiresAt}
           onRegenerate={onRequestCode}
           regLoading={regLoading}
+          onLogoHold={openSwitch}
         />
       }
     >
@@ -81,6 +89,8 @@ export default function Home({
         wave={<WaveformBars speaking={phase === 'speaking'} audioEl={reply?.audioEl || null} />}
         text={<ReplyText greeting={t('greeting')} phase={phase} reply={reply} highlightIndex={highlightIndex} />}
       />
+
+      {switchOpen && <SwitchModeSheet onCancel={closeSwitch} onConfirm={goToModeChooser} />}
     </TerminalStage>
   )
 }

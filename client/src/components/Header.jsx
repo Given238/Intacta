@@ -7,6 +7,7 @@
  * when there is no valid one. Nothing here switches the screen to a caregiver view.
  * Compact (portrait or <900px): logo + wordmark, one menu button that opens a popover with both actions;
  * the connection card opens inside that popover.
+ * Holding the logo for 3 s (touch or mouse) calls onLogoHold; there is no visible switch button.
  * CSS in terminal.css (.term-header*); sizes scale with the header height.
  */
 import { useEffect, useRef, useState } from 'react'
@@ -14,6 +15,7 @@ import { useTranslation } from 'react-i18next'
 import { Menu, X } from 'lucide-react'
 import logoSvg from '../assets/logo.svg'
 import ConnectCard from './ConnectCard'
+import { useLongPress } from '../hooks/useLongPress'
 
 // Play triangle (Figma 62:119)
 function PlayTriangle({ size = 18 }) {
@@ -42,10 +44,12 @@ export default function Header({
   pairingExpiresAt,
   onRegenerate,
   regLoading,
+  onLogoHold,        // patient screen: holding the logo 3 s opens "Switch mode?" (a tap does nothing)
 }) {
   const { t } = useTranslation()
   const [menuOpen, setMenuOpen] = useState(false)
   const rowRef = useRef(null)
+  const hold = useLongPress(onLogoHold)
 
   // Close the compact menu and the popup on an outside tap or Escape
   useEffect(() => {
@@ -74,7 +78,7 @@ export default function Header({
     <header className="term-header">
       <div className="term-header-row" ref={rowRef}>
         {/* Logo (node 31:4) + wordmark */}
-        <img src={logoSvg} alt="" className="term-logo" />
+        <img src={logoSvg} alt="" className="term-logo" draggable={false} {...hold} />
         <div className="term-brand">
           <span className="term-wordmark">{t('brand')}</span>
           <span className="term-tagline">{t('tagline')}</span>

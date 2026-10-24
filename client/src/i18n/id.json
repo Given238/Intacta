@@ -14,6 +14,25 @@
     "expired": "Kode ini sudah kedaluwarsa.",
     "loading": "Mengambil kode…"
   },
+  "startMenu": {
+    "title": "Siapa yang menggunakan perangkat ini?",
+    "patientTitle": "Tablet pasien",
+    "patientBody": "Menampilkan Intacta, mendengarkan dan berbicara. Gunakan di tablet di rumah.",
+    "caregiverTitle": "Caregiver",
+    "caregiverBody": "Kelola catatan, rutinitas, dan pengaturan dari ponsel Anda.",
+    "remember": "Ingat pilihan ini di perangkat ini",
+    "language": "Bahasa",
+    "en": "EN",
+    "id": "ID",
+    "enName": "English",
+    "idName": "Bahasa Indonesia"
+  },
+  "switchMode": {
+    "title": "Ganti mode?",
+    "body": "Perangkat ini akan meninggalkan layar pasien.",
+    "cancel": "Batal",
+    "confirm": "Ganti"
+  },
   "greeting": "Hai, saya Intacta dan di sini untuk membantu Anda.",
   "start": "Ketuk untuk mulai",
   "startHint": "Ketuk di mana saja untuk memulai",
@@ -273,6 +292,8 @@
         "logout": "Keluar",
         "logoutTitle": "Keluar?",
         "logoutBody": "Untuk masuk lagi Anda memerlukan kode baru dari tablet (Aktifkan koneksi caregiver).",
+        "deviceMode": "Mode perangkat",
+        "changeMode": "Ganti mode",
         "errors": {
           "name": "Isi nama.",
           "email": "Isi alamat email yang valid.",

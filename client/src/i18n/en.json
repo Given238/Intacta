@@ -14,6 +14,25 @@
     "expired": "This code has expired.",
     "loading": "Getting a code…"
   },
+  "startMenu": {
+    "title": "Who is using this device?",
+    "patientTitle": "Patient tablet",
+    "patientBody": "Shows Intacta, listens and talks. Use this on the tablet at home.",
+    "caregiverTitle": "Caregiver",
+    "caregiverBody": "Manage notes, routines and settings from your phone.",
+    "remember": "Remember this choice on this device",
+    "language": "Language",
+    "en": "EN",
+    "id": "ID",
+    "enName": "English",
+    "idName": "Bahasa Indonesia"
+  },
+  "switchMode": {
+    "title": "Switch mode?",
+    "body": "This device will leave the patient screen.",
+    "cancel": "Cancel",
+    "confirm": "Switch"
+  },
   "greeting": "Hi, I’m Intacta and here to help you.",
   "start": "Tap to start",
   "startHint": "Tap anywhere to begin",
@@ -273,6 +292,8 @@
         "logout": "Log Out",
         "logoutTitle": "Log out?",
         "logoutBody": "To sign in again you'll need a new code from the tablet (Enable caregiver connection).",
+        "deviceMode": "Device mode",
+        "changeMode": "Change mode",
         "errors": {
           "name": "Enter a name.",
           "email": "Enter a valid email address.",

@@ -12,6 +12,11 @@ const REQUIRED = [
   'enable', 'caregiverConnection', 'authCode', 'regenerate',
   'connect.title', 'connect.helpBefore', 'connect.helpAfter', 'connect.scan', 'connect.qrLabel',
   'connect.expiresIn', 'connect.expired', 'connect.loading',
+  'startMenu.title', 'startMenu.patientTitle', 'startMenu.patientBody', 'startMenu.caregiverTitle',
+  'startMenu.caregiverBody', 'startMenu.remember', 'startMenu.language', 'startMenu.en', 'startMenu.id',
+  'startMenu.enName', 'startMenu.idName',
+  'switchMode.title', 'switchMode.body', 'switchMode.cancel', 'switchMode.confirm',
+  'portal.settings.account.deviceMode', 'portal.settings.account.changeMode',
 ]
 
 describe('i18n dictionaries', () => {

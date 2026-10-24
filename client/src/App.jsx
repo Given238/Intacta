@@ -48,10 +48,11 @@ function useDevShortcuts() {
   return { typedOpen, setTypedOpen, debugOpen }
 }
 
-export default function App() {
+export default function App({ boot = null }) {
   const { t } = useTranslation()
   // Start gate on every load: audio (and the mic) need a real user gesture per page session.
-  const [started,     setStarted]     = useState(false)
+  // boot = the start menu's "Patient tablet" tap in this page session ({audioUnlocked, mic}): no gate.
+  const [started,     setStarted]     = useState(!!boot)
   const [deviceToken, setDeviceToken] = useState(() => localStorage.getItem('device_token') || null)
   const [patientId,   setPatientId]   = useState(() => localStorage.getItem('patient_id') || null)
   const [language,    setLanguage]    = useState(() => localStorage.getItem('terminal_language') || 'en')
@@ -64,7 +65,7 @@ export default function App() {
   const [volumeDb,      setVolumeDb]      = useState(65)
   const [ttsError,      setTtsError]      = useState(null) // dev overlay: why the last reply used browser speech
   const [replyMeta,     setReplyMeta]     = useState(null) // dev overlay: last /api/respond meta (backup reply, reason)
-  const [micStream,     setMicStream]     = useState(null) // Promise<MediaStream>, requested inside the Start tap
+  const [micStream,     setMicStream]     = useState(() => boot?.mic || null) // Promise<MediaStream>, requested inside the Start tap
   const navigateRef = useRef(null)
 
   const { socket } = useSocket(deviceToken)
@@ -146,6 +147,19 @@ export default function App() {
     setStarted(true)
     emitDeviceStatus(true)
   }, [])
+
+  // Arrived from the start menu but the browser still blocked audio: fall back to the Start gate
+  useEffect(() => {
+    let live = true
+    boot?.audioUnlocked?.then(ok => {
+      if (live && !ok) {
+        console.warn('audio still locked after the start menu tap: showing the Start gate')
+        setMicStream(null)
+        setStarted(false)
+      }
+    })
+    return () => { live = false }
+  }, [boot])
 
   /* ── Register device → get pairing code ── */
   const handleRegisterDevice = useCallback(async () => {

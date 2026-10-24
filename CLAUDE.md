@@ -24,7 +24,7 @@ Tick a phase only after its verification passes. If a day slips, cut Settings po
 - **Voice:** Silero VAD / Web Speech API in; ElevenLabs (server-side, streamed) with browser SpeechSynthesis fallback out
 
 ## Repo Structure
-/client            React app (routes: /portal/*, /terminal)
+/client            React app (routes: / start menu, /portal/*, /terminal)
 /server/src        routes, controllers, services, sockets, db, llm, middleware
 /server/migrations
 /docs              SRS + context file + demo-script.md
@@ -87,7 +87,7 @@ ALL patient-facing LLM output:
 - Validate input at the boundary (zod). Invalid time → 400 with a field-level error (FR-4.1.3).
 - Every caregiver mutation writes an audit log (caregiver_id + ISO-8601 timestamp).
 - Secrets only in .env (GEMINI_API_KEY, ELEVENLABS_API_KEY, JWT_SECRET, DATABASE_URL, CLIENT_ORIGIN, API_ORIGIN). Gemini and ElevenLabs are called from the server only, never from the browser.
-- Terminal localStorage is limited to: device_token and the 24h context cache.
+- Terminal localStorage is limited to: device_token and the 24h context cache (plus the start menu's `intacta_mode` {mode}).
 
 ## Pairing Flow (code-based, replaces QR)
 1. Terminal header "▶ Enable / caregiver connection" (id: "Aktifkan / koneksi caregiver") calls `POST /api/devices/register` →
@@ -105,6 +105,22 @@ ALL patient-facing LLM output:
 3. Server moves the terminal's `device:{id}` sockets into `patient:{id}` and emits `device:paired`, `context:sync`, `settings:sync` to it. The terminal keeps the device_token from step 1.
 Logic lives in `server/src/services/pairingService.js`.
 Known limitation (state it in the pitch): code-only caregiver auth is a hackathon simplification; production adds caregiver login.
+
+## Routes, start menu and modes (UX)
+- `client/src/Root.jsx` picks the app once per page load (`lib/startMode.js` `resolveStart`): `/portal…` → portal, `/` → start menu,
+  anything else → terminal (its catch-all goes to `/terminal`).
+- `/` start menu (`pages/StartMenu.jsx`): mesh, logo + wordmark + tagline, "Who is using this device?", two cards (≥56px, keyboard
+  focus ring; side by side from 700px): "Patient tablet" → `/terminal`, "Caregiver" → `/portal` (its guard sends no-login users to
+  `/portal/pair`). EN/ID toggle (UI language only, not stored) and "Remember this choice on this device" (default on).
+- Mode memory: localStorage `intacta_mode` = `{mode: 'patient'|'caregiver'}` (try/catch, nothing sensitive), written only by the start
+  menu (checkbox on; off clears it). `/` with a stored mode and no `?choose=1` redirects (replaceState) to that app. Direct links to
+  `/terminal` and `/portal` always work and never change the stored mode.
+- Switching: terminal = hold the header logo 3 s (touch or mouse; a tap does nothing; no visible switch button) → sheet "Switch mode?
+  This device will leave the patient screen." Cancel / Switch. Portal = Settings → Account & Security → "Change mode". Both clear the
+  stored mode and load `/?choose=1`. NEVER delete `device_token` or the caregiver login (`portal_session`) when switching.
+- Audio: choosing "Patient tablet" swaps to the terminal without a reload, and that tap unlocks audio + requests the mic, so the
+  "Tap to start" gate is skipped. Direct loads/reloads of `/terminal` keep the gate; if audio is still blocked, the gate comes back.
+- Wording: the terminal header button is "Enable caregiver connection" (see Pairing Flow); never "Caregiver mode".
 
 ## Socket.IO Contract (keep in sync)
 - server → terminal: `context:sync` {payload: {patient_name, language, daily[{id,text}], permanent[{id,text}]}, updated_at}

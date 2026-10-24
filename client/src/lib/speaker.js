@@ -40,12 +40,16 @@ export function volumeFor(volumeDb = 65) {
 /**
  * Call synchronously inside the Start tap: plays silence on the shared element, resumes the
  * AudioContext (and wires the analyser) and primes speechSynthesis, so later replies may autoplay.
+ * Resolves false when the browser blocked playback (no user gesture), else true.
  */
 export function unlockAudio() {
   const a = sharedAudio()
   a.src = URL.createObjectURL(wavBlob(new Float32Array(800), 16000)) // 0.05 s of silence
-  const p = a.play()
-  p?.then(() => a.pause()).catch(() => {})
+  // false only when the browser refused playback for lack of a user gesture (NotAllowedError)
+  const unlocked = Promise.resolve(a.play()).then(
+    () => { a.pause(); return true },
+    (err) => err?.name !== 'NotAllowedError',
+  )
   const ctx = audioContext()
   ctx?.resume?.().catch(() => {})
   analyserSource(a)
@@ -56,6 +60,7 @@ export function unlockAudio() {
       window.speechSynthesis.speak(u)
     }
   } catch { /* not supported */ }
+  return unlocked
 }
 
 export function ttsUrl(text, deviceToken) {

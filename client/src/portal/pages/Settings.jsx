@@ -18,6 +18,7 @@ import micIcon       from '../../assets/icons/mic.svg'
 import arrowIcon     from '../../assets/icons/keyboard-arrow-up.svg'
 import onlineDot     from '../../assets/icons/status-dot-online.svg'
 import i18n from '../../i18n'
+import { goToModeChooser } from '../../lib/startMode'
 import { portalFetch, portalFetchBlob } from '../portalApi'
 import { getSession, clearSession } from '../session'
 import { usePortalLoad, sessionPatientId } from '../usePortalLoad'
@@ -450,6 +451,13 @@ function AccountCard({ caregiver, onSaved, onLogout }) {
         <p className="text-body">{t('portal.settings.account.profile')}</p>
         <button type="button" onClick={onLogout} className={`${PILL} min-w-[102px] shrink-0 bg-[#761313]`}>
           {t('portal.settings.account.logout')}
+        </button>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-body">{t('portal.settings.account.deviceMode')}</p>
+        {/* Back to the start menu; the login and any device token stay */}
+        <button type="button" onClick={goToModeChooser} className={`${PILL} min-w-[102px] shrink-0 bg-[#5e6d77]`}>
+          {t('portal.settings.account.changeMode')}
         </button>
       </div>
       <div className="grid grid-cols-[56px_1fr] items-center gap-x-2 gap-y-2">
