@@ -1,7 +1,7 @@
 # Intacta — Progress Status
 
 Last updated: 2026-10-25
-Branch: `phase-7-logout` (Part F: logout), merged into `main` by `scripts/safe-push.mjs`
+Branch: `main` (Part F logout merged from `phase-7-logout` and deployed 2026-10-25, see "Deploy log")
 
 ---
 
@@ -1159,6 +1159,30 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
   `npm run build` OK.
 - **Not verified:** a real phone + tablet logout end to end, the offline retry on a real phone, `npm run check:layout` for the
   pair-screen notice.
+
+---
+
+## Deploy log
+
+### 2026-10-25 12:24 UTC (19:24 WIB): Part F logout
+- Pushed commit `dcca33b` (feature `37560aa` + `scripts/safe-push.mjs`) to `origin/main` with `node scripts/safe-push.mjs`
+  (main fast-forwarded from `phase-7-logout`; branch on main ✓, clean tree ✓, no `server/.env` secret value in HEAD ✓, no
+  tracked .env / node_modules ✓, origin/main ancestor ✓). No force push. The stray file "ersgipenIntacta" did not exist.
+- Tests before the push: server `npm test` 492 passed / 21 skipped (16 suites); client `npm test` 193 passed (14 files);
+  client `npm run build` OK.
+- Migrations: only `010_sessions_logout.sql` was pending (checked in the DB: no `caregiver_sessions`, no `left_at`). Read and
+  confirmed additive (new table + index, nullable column with no default; no DROP / destructive ALTER / deletes).
+  `npm run migrate` → "All migrations applied." (migrate.js re-runs 001–010; all idempotent).
+- Deploy check: `https://api.intacta.id/health` → 200 `{"status":"ok","db":"connected"}` throughout; the new code was live
+  at t+21 s (`POST /api/auth/logout` without a token → 401 `invalid_token`, was 404 on the old build). `https://intacta.id/` → 200.
+- **Needs a manual check:**
+  - The start-up stale cleanup on the new server marks pre-010 memberships older than one token lifetime as left (about 20 on the
+    `DATABASE_URL` database in the rolled-back dry run). Their tablets now show the connect buttons until a caregiver pairs
+    again (same patient, notes kept), and those caregivers' old phone sessions get 401 when their tokens expire. Check the demo
+    tablet and pair it again before the demo.
+  - Whether the live server uses the same database as `server/.env` `DATABASE_URL` (the migration ran there; the live server
+    started fine and `/health` reports the DB connected, but the new tables are only used by the new code).
+  - Real phone + tablet logout end to end (see NEXT).
 
 ---
 
