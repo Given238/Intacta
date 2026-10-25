@@ -77,7 +77,28 @@
         "sessionExpired": "Sesi Anda sudah berakhir. Masukkan kode lagi."
       },
       "backToSettings": "kembali ke pengaturan",
-      "subtitleLink": "hubungkan tablet lain"
+      "subtitleLink": "hubungkan tablet lain",
+      "or": "atau",
+      "scan": "Pindai kode QR",
+      "detected": "Kode terdeteksi, menghubungkan..."
+    },
+    "scan": {
+      "title": "Pindai kode QR",
+      "why": "Kamera hanya dipakai untuk membaca kode di tablet. Tidak ada yang direkam atau disimpan.",
+      "help": "Arahkan kamera ke kode QR di tablet",
+      "starting": "Menyalakan kamera…",
+      "notIntacta": "Ini bukan kode Intacta.",
+      "close": "Tutup",
+      "typeInstead": "Ketik kode saja",
+      "torchOn": "Nyalakan senter",
+      "torchOff": "Matikan senter",
+      "errors": {
+        "denied": "Akses kamera diblokir. Izinkan kamera untuk situs ini di pengaturan browser (ikon gembok atau kamera di samping alamat), lalu coba lagi. Anda juga bisa mengetik kodenya.",
+        "noCamera": "Tidak ada kamera di perangkat ini. Ketik kodenya saja.",
+        "insecure": "Kamera hanya berfungsi di halaman aman (https). Ketik kodenya saja.",
+        "unsupported": "Browser ini tidak bisa memindai kode QR. Ketik kodenya saja.",
+        "error": "Kamera tidak bisa dinyalakan. Tutup lalu coba lagi, atau ketik kodenya."
+      }
     },
     "tabs": {
       "label": "Navigasi portal",

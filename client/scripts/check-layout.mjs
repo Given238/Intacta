@@ -7,7 +7,8 @@
  *
  * Env: BASE_URL (default http://localhost:5173), CHROME_PATH (default: the usual Windows/mac/Linux Chrome path),
  *      PLAYWRIGHT_CORE_PATH (absolute path to a playwright-core install, if not in node_modules).
- * Pages: /terminal (idle + a long reply via the dev-only window.__intactaSay), /portal/pair, Home, Patient,
+ * Pages: /terminal (idle, a long reply via the dev-only window.__intactaSay, paired chip), /portal/pair (+ the QR scanner
+ * with Chrome's fake camera), Home, Patient,
  * Routines, Context, Settings. Writes <outDir>/<page>-<w>x<h>.png and <outDir>/report.json; exits 1 when any
  * page scrolls horizontally (document.scrollWidth > innerWidth).
  */
@@ -44,7 +45,11 @@ const PORTAL_PAGES = [
 ]
 
 mkdirSync(OUT, { recursive: true })
-const browser = await chromium.launch({ executablePath: CHROME, headless: true })
+// A fake camera (Chrome's test pattern), granted without a prompt: the "Scan QR code" sheet shows a live preview
+const browser = await chromium.launch({
+  executablePath: CHROME, headless: true,
+  args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+})
 const report = []
 
 async function measure(page, name, [w, h]) {
@@ -109,6 +114,12 @@ for (const vp of VIEWPORTS) {
   await page.evaluate(() => localStorage.removeItem('portal_session'))
   await page.goto(`${BASE}/portal/pair`)
   await measure(page, 'portal-pair', vp)
+  // "Scan QR code": full-screen sheet on phones, centered dialog from 640px, live (fake) camera
+  await page.click('[data-testid=scan-qr]')
+  await page.waitForSelector('[data-testid=qr-scanner]')
+  await page.waitForTimeout(1500)
+  await measure(page, 'portal-pair-scan', vp)
+  await page.keyboard.press('Escape')
   if (session) {
     await page.evaluate((s) => localStorage.setItem('portal_session', s), session)
     for (const [name, path] of PORTAL_PAGES) {

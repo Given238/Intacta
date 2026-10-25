@@ -1067,6 +1067,37 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 
 ---
 
+## Part E: QR code + "Scan QR code" on the caregiver pair screen (2026-10-25, branch `phase-7-safety-replies-layout`)
+
+### Done
+- E1 (the popup QR already existed): payload now built by `pairLink` in `portal/pairCode.js` (only the one-time code), quiet
+  zone 2 → 4 modules (QR standard), size responsive `clamp(140px, 30vmin, 200px)` (was a fixed 132 px), regenerated with the code.
+- E2: `/portal/pair` keeps the code input + Confirm, then "or" divider and a secondary "Scan QR code" button (camera icon, 48 px).
+  `portal/components/QrScannerSheet.jsx` (React.lazy): full-screen on phones, centered dialog ≥640 px; live rear-camera preview,
+  framing square, helper text, why-the-camera text, Close + "Type the code instead", flashlight toggle only if `torch` is supported.
+- E3: `portal/qrScan.js` — native BarcodeDetector when it supports qr_code, else `@zxing/browser@0.2.1` (new dependency, maintained,
+  released 2026-07-06) loaded by dynamic import: its own 477 kB chunk, the pair page bundle grew ~4 kB. `parseScannedCode`
+  accepts our hostname's `?code=` URL or a bare code (lowercase ok); a valid scan stops the camera, fills the field, shows
+  "Code detected, connecting..." and submits through the existing pair call / error toasts.
+- E4: errors denied / noCamera / insecure / unsupported / error with short instructions (EN + ID); all tracks stop on close,
+  success and unmount, including a permission prompt that resolves after the sheet closed. Frames are read in memory only.
+- E5: unchanged `?code=` behaviour (prefill, no auto-submit, cleared from the URL).
+
+### Verification
+- `client`: `npm test` → 172 passed (`pairCode.test.js`: payload has only the code, valid URL, wrong origin and look-alike hosts,
+  bare + lowercase codes, junk; `qrScan.test.js`: rear camera only, tracks stopped on close / success (before onCode) /
+  unmount mid-prompt, non-Intacta code keeps scanning, torch only when supported, error classification, insecure, unsupported;
+  i18n keys en + id).
+- Real Chrome (scratch script): the zxing path decodes the tablet's QR (`/portal/pair?code=AB23CD` → `AB23CD`), a blank frame
+  → null. (This Chrome has no BarcodeDetector; the native path is not exercised.)
+- Layout (`npm run check:layout`, Chrome fake camera): `portal-pair` and the open scanner `portal-pair-scan` have no horizontal
+  scroll at all 9 viewports incl. 360x740, 390x844, 768x1024.
+- `server`: `npm test` → 462 passed (no server change in Part E).
+- **Not verified:** scanning with a real phone camera (iOS Safari, Android Chrome), the flashlight on a real device.
+- No new migrations in Part E (Part D added `009_care_team.sql`).
+
+---
+
 ## Known bugs / open items
 1. **Run `npm run db:seed`** and smoke-test the 3b endpoints (migrate 001–004 has now run against `DATABASE_URL`). (CLAUDE.md says
    `db:migrate`; the script is named `migrate`.)
@@ -1132,7 +1163,7 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 - Decide FR-4.3.2: keep the 2500 ms + 2 s ladder or restore 1.2 s (see Part B).
 - Decide: quota-aware retry (honour the 429 Retry-After) for the safety ensemble, or billing (see "A7").
 - Part D: try two phones pairing one tablet end to end; check the name sheet and the chip long press on a real tablet.
-- Part E: QR scanner on /portal/pair (in progress).
+- Part E: scan the tablet's QR with a real iPhone (Safari) and Android phone (Chrome); try the flashlight.
 - Tablet test of Parts A–C (lists under "Voice and routines"); restart `npm run dev` first so `/vad/` assets are served.
 - Delete spurious routine "missed" rows 50 and 51 if patients 7 / 13 are real (see Part C side effects).
 - Decide on STT latency (Gemini audio 1.4–2.5 s vs the 800 ms target): accept, or move to a streaming STT.

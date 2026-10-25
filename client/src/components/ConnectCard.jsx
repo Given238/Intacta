@@ -2,11 +2,15 @@
  * ConnectCard — content of the "Connect a caregiver" popup (header popover, compact menu, /terminal/pairing).
  *
  * Title, the pairing code, where to type it ("{origin}/portal", built from window.location.origin),
- * a QR code for {origin}/portal/pair?code=XXXXXX, the expiry countdown and "Get a new code".
+ * a QR code for {origin}/portal/pair?code=XXXXXX (only the one-time code; regenerated with the code), the expiry countdown
+ * and "Get a new code".
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import qrcode from 'qrcode-generator'
+import { pairLink } from '../portal/pairCode'
+
+const QUIET = 4 // modules of white around the code
 
 function formatRemaining(ms) {
   const s = Math.max(0, Math.floor(ms / 1000))
@@ -36,10 +40,11 @@ function QrCode({ text, label }) {
     }
     return { size: n, path: d }
   }, [text])
-  // 2-module quiet zone, black on white so phone cameras read it
+  // 4-module quiet zone (the QR standard), black on white so phone cameras read it
+  const box = size + 2 * QUIET
   return (
-    <svg className="term-qr" viewBox={`-2 -2 ${size + 4} ${size + 4}`} role="img" aria-label={label} shapeRendering="crispEdges">
-      <rect x="-2" y="-2" width={size + 4} height={size + 4} fill="#ffffff" />
+    <svg className="term-qr" viewBox={`${-QUIET} ${-QUIET} ${box} ${box}`} role="img" aria-label={label} shapeRendering="crispEdges">
+      <rect x={-QUIET} y={-QUIET} width={box} height={box} fill="#ffffff" />
       <path d={path} fill="#000000" />
     </svg>
   )
@@ -62,7 +67,7 @@ export default function ConnectCard({ code, expiresAt, loading, onRegenerate }) 
       </p>
       {live && (
         <>
-          <QrCode text={`${portalUrl}/pair?code=${encodeURIComponent(code)}`} label={t('connect.qrLabel')} />
+          <QrCode text={pairLink(origin, code)} label={t('connect.qrLabel')} />
           <p className="term-popover-note mt-[6px]">{t('connect.scan')}</p>
         </>
       )}

@@ -94,13 +94,25 @@ ALL patient-facing LLM output:
 - Terminal localStorage is limited to: device_token (+ device_id, patient_id, terminal_language), the 24h context cache,
   `terminal_connection` {paired, name, count} (last known header chip state) and the start menu's `intacta_mode` {mode}.
 
-## Pairing Flow (code-based, replaces QR)
+## Pairing Flow (6-character code; the QR code and the scanner carry the same code)
 1. Terminal header "▶ Enable / caregiver connection" (id: "Aktifkan / koneksi caregiver") calls `POST /api/devices/register` →
    `{device_id, device_token, code, expires_at}` when there is no valid code. Code is 6 chars, TTL 10 min, single use; "Get a new code" regenerates.
    It and "Authentication code" open/close the SAME "Connect a caregiver" popup (`components/ConnectCard.jsx`): code, "On your phone, open
    {window.location.origin}/portal and enter this code", a QR code for `{origin}/portal/pair?code=XXXXXX`, expiry countdown, regenerate.
    The terminal never switches to a caregiver view (never call it "Caregiver mode"). The pair screen pre-fills `?code=` (never auto-submits)
    and clears it from the URL (`portal/pairCode.js`).
+   QR payload rules (`portal/pairCode.js`): the tablet's QR = `pairLink(origin, code)` = `{origin}/portal/pair?code=XXXXXX`, ONLY the
+   one-time code (never a device token), black on white, 4-module quiet zone, 140-200 px, regenerated with every code.
+   A scan is accepted only as (1) an http(s) URL whose hostname equals `window.location.hostname` with `?code=` of exactly 6
+   letters/digits or (2) a bare 6-character code; case-insensitive (`parseScannedCode`). Anything else → "This isn't an Intacta code."
+   Pair screen (/portal/pair): code input + Confirm, then "or" + secondary "Scan QR code" (id "Pindai kode QR", camera icon, ≥44px) →
+   `portal/components/QrScannerSheet.jsx` (lazy; full-screen <640px, centered dialog ≥640px): rear-camera preview, framing square,
+   "Point the camera at the QR code on the tablet", why the camera is needed, Close / "Type the code instead", flashlight only when
+   the track reports `torch`. Decoder (`portal/qrScan.js`): native BarcodeDetector if it reads qr_code, else `@zxing/browser`
+   (dynamic import). A valid scan stops the camera FIRST, fills the field, shows "Code detected, connecting..." and submits through
+   the same pair call and error states. Every track stops on close, success and unmount (also mid-permission prompt); nothing is
+   recorded, stored or uploaded. Errors: denied (how to re-enable in browser settings), no camera, insecure (non-https), unsupported;
+   manual entry always stays.
 2. Caregiver enters the code on the phone → `POST /api/devices/pair {code}`: PUBLIC (no login), rate-limited 5/min/IP.
    Device already has a patient → it is kept (never a second patient): without a JWT a NEW caregiver (email/password NULL) is
    created and joins that patient's care team (never the first caregiver's login); with a JWT that caregiver joins it.

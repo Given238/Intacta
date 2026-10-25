@@ -3,12 +3,14 @@
  *
  *   Page bg #164c67, back link, screen title, then a centered card (#137ba6) on every width:
  *   subtitle, divider (#54aed3), "Enter code:", code box (#234053), Confirm (#0e5f80).
+ *   Below them (not in Figma): "or" + "Scan QR code" (camera) → QrScannerSheet (lazy-loaded with its decoder).
+ *   A scanned code fills the field, shows "Code detected, connecting..." and goes through the same pair call and errors.
  *   Figma sizes are a reference; text uses the portal type scale.
  */
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Loader2 } from 'lucide-react'
+import { Camera, Loader2 } from 'lucide-react'
 
 import PortalHeader from '../components/PortalHeader'
 import PortalToast  from '../components/PortalToast'
@@ -16,6 +18,9 @@ import dividerSvg   from '../../assets/portal-divider.svg'
 import { pairWithCode } from '../portalApi'
 import { getSession, setSession, clearSession } from '../session'
 import { CODE_LENGTH, toRawCode, takeCodeParam } from '../pairCode'
+
+// The scanner (and its QR decoder) loads only when the caregiver opens it
+const QrScannerSheet = lazy(() => import('../components/QrScannerSheet'))
 
 const SEPARATOR   = ' - '
 
@@ -40,6 +45,8 @@ export default function Pair() {
   const [code,    setCode]    = useState(() => takeCodeParam(params.toString()).code)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
+  const [scanning, setScanning] = useState(false)
+  const [detected, setDetected] = useState(false) // "Code detected, connecting..."
 
   // Clear ?code= from the address bar once read
   useEffect(() => {
@@ -62,17 +69,29 @@ export default function Pair() {
     setError(null)
   }
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault()
+    submitCode(code)
+  }
+
+  // A scan: the camera is already off; fill the field and pair right away
+  const handleDetected = (scanned) => {
+    setScanning(false)
+    setCode(scanned)
+    setDetected(true)
+    submitCode(scanned)
+  }
+
+  const submitCode = async (value) => {
     if (loading) return
-    if (code.length !== CODE_LENGTH) {
+    if (value.length !== CODE_LENGTH) {
       setError(t('portal.pair.errors.invalid'))
       return
     }
     setLoading(true)
     setError(null)
     try {
-      const data = await pairWithCode(code, { token: linkToken })
+      const data = await pairWithCode(value, { token: linkToken })
       setSession(data)
       // A first pairing asks "What should we call you?" when the caregiver has no name (PortalApp useAskName)
       navigate(linkToken ? '/portal/settings' : '/portal', { replace: true, state: linkToken ? null : { askName: true } })
@@ -88,6 +107,7 @@ export default function Pair() {
       setError(t(`portal.pair.errors.${ERROR_KEYS[err.code] || 'generic'}`))
     } finally {
       setLoading(false)
+      setDetected(false)
     }
   }
 
@@ -97,6 +117,11 @@ export default function Pair() {
     <div className="flex h-full flex-col overflow-y-auto bg-[#164c67] text-white">
       <PortalHeader />
       <PortalToast message={error} />
+      {scanning && (
+        <Suspense fallback={null}>
+          <QrScannerSheet onDetected={handleDetected} onClose={() => setScanning(false)} />
+        </Suspense>
+      )}
 
       {/* Centered card on every width */}
       <main className="flex flex-1 items-start justify-center px-4 py-6 sm:items-center">
@@ -158,6 +183,28 @@ export default function Pair() {
             >
               {loading && <Loader2 size={20} className="animate-spin" aria-hidden="true" />}
               {t('portal.pair.confirm')}
+            </button>
+
+            <p className="text-secondary mt-3 min-h-[1.45em] text-center text-[#dff3ff]" role="status" aria-live="polite">
+              {detected ? t('portal.pair.detected') : ''}
+            </p>
+
+            {/* ── or: scan the tablet's QR code ── */}
+            <div className="mt-3 flex w-full max-w-[274px] items-center gap-3" aria-hidden="true">
+              <span className="h-px flex-1 bg-[#54aed3]" />
+              <span className="text-secondary text-[#dff3ff]">{t('portal.pair.or')}</span>
+              <span className="h-px flex-1 bg-[#54aed3]" />
+            </div>
+            <button
+              type="button"
+              onClick={() => { setError(null); setScanning(true) }}
+              disabled={loading}
+              data-testid="scan-qr"
+              className="text-body mt-4 flex min-h-[48px] min-w-[163px] items-center justify-center gap-2 rounded-control border-2
+                         border-[#54aed3] px-5 font-semibold text-white disabled:opacity-60"
+            >
+              <Camera size={20} aria-hidden="true" />
+              {t('portal.pair.scan')}
             </button>
           </form>
         </div>

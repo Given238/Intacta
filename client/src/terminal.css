@@ -253,7 +253,7 @@
 /* "Connect a caregiver": the portal address, QR code and countdown */
 .term-connect-url { font-weight: 700; color: #ffffff; overflow-wrap: anywhere; }
 .term-connect-expiry { font-variant-numeric: tabular-nums; }
-.term-qr { display: block; width: 132px; height: 132px; margin: 10px auto 0; border-radius: 8px; }
+.term-qr { display: block; width: clamp(140px, 30vmin, 200px); height: auto; aspect-ratio: 1; margin: 10px auto 0; border-radius: 8px; }
 
 /* ── Main area ────────────────────────────────────────────────────────────── */
 .term-main {

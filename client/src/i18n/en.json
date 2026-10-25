@@ -77,7 +77,28 @@
         "sessionExpired": "Your session has expired. Enter the code again."
       },
       "backToSettings": "back to settings",
-      "subtitleLink": "link another tablet"
+      "subtitleLink": "link another tablet",
+      "or": "or",
+      "scan": "Scan QR code",
+      "detected": "Code detected, connecting..."
+    },
+    "scan": {
+      "title": "Scan QR code",
+      "why": "The camera is only used to read the code on the tablet. Nothing is recorded or saved.",
+      "help": "Point the camera at the QR code on the tablet",
+      "starting": "Starting the camera…",
+      "notIntacta": "This isn't an Intacta code.",
+      "close": "Close",
+      "typeInstead": "Type the code instead",
+      "torchOn": "Turn on the flashlight",
+      "torchOff": "Turn off the flashlight",
+      "errors": {
+        "denied": "Camera access is blocked. Allow the camera for this site in your browser settings (the lock or camera icon next to the address), then try again. You can also type the code.",
+        "noCamera": "No camera was found on this device. Type the code instead.",
+        "insecure": "The camera only works on a secure (https) page. Type the code instead.",
+        "unsupported": "This browser can't scan QR codes. Type the code instead.",
+        "error": "The camera could not start. Close this and try again, or type the code."
+      }
     },
     "tabs": {
       "label": "Portal navigation",

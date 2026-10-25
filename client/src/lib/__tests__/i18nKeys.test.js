@@ -22,6 +22,12 @@ const REQUIRED = [
   'portal.settings.account.nameHint', 'portal.settings.account.errors.name', 'portal.settings.account.errors.nameUnsafe',
   'portal.nameSheet.title', 'portal.nameSheet.body', 'portal.nameSheet.label', 'portal.nameSheet.placeholder',
   'portal.nameSheet.save', 'portal.nameSheet.skip',
+  // Part E: "Scan QR code" on the pair screen
+  'portal.pair.or', 'portal.pair.scan', 'portal.pair.detected',
+  'portal.scan.title', 'portal.scan.why', 'portal.scan.help', 'portal.scan.starting', 'portal.scan.notIntacta',
+  'portal.scan.close', 'portal.scan.typeInstead', 'portal.scan.torchOn', 'portal.scan.torchOff',
+  'portal.scan.errors.denied', 'portal.scan.errors.noCamera', 'portal.scan.errors.insecure',
+  'portal.scan.errors.unsupported', 'portal.scan.errors.error',
 ]
 
 describe('i18n dictionaries', () => {
@@ -39,6 +45,14 @@ describe('i18n dictionaries', () => {
   it('the chip is "Connected · {{name}}" / "Terhubung · {{name}}"', () => {
     expect(en.connected.label).toBe('Connected · {{name}}')
     expect(id.connected.label).toBe('Terhubung · {{name}}')
+  })
+
+  it('the scan strings read as asked', () => {
+    expect(en.portal.pair.scan).toBe('Scan QR code')
+    expect(id.portal.pair.scan).toBe('Pindai kode QR')
+    expect(en.portal.scan.help).toBe('Point the camera at the QR code on the tablet')
+    expect(en.portal.scan.notIntacta).toBe("This isn't an Intacta code.")
+    expect(en.portal.pair.detected).toBe('Code detected, connecting...')
   })
 
   it('no string still says "Caregiver mode"', () => {

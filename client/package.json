@@ -15,6 +15,7 @@
     "@fontsource/baloo-da-2": "^5.3.0",
     "@fontsource/inter": "^5.3.0",
     "@ricky0123/vad-web": "^0.0.31",
+    "@zxing/browser": "0.2.1",
     "i18next": "^26.4.2",
     "lucide-react": "^1.54.0",
     "qrcode-generator": "^1.4.4",
