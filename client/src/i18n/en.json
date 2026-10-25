@@ -294,13 +294,23 @@
         "logoutBody": "To sign in again you'll need a new code from the tablet (Enable caregiver connection).",
         "deviceMode": "Device mode",
         "changeMode": "Change mode",
+        "nameHint": "The tablet shows \"Connected · your name\". Leave it empty to show \"Caregiver\".",
         "errors": {
-          "name": "Enter a name.",
+          "name": "Use 2 to 40 letters. Spaces and . ' - are fine.",
+          "nameUnsafe": "This name can't be shown to the patient. Please use your name or a kind nickname.",
           "email": "Enter a valid email address.",
           "emailTaken": "That email is already used by another account."
         }
       },
       "recordingNotice": "Voice clips are kept for a limited time, and you can delete them."
+    },
+    "nameSheet": {
+      "title": "What should we call you?",
+      "body": "The tablet will show \"Connected · your name\" to the patient.",
+      "label": "Your name",
+      "placeholder": "e.g. Rina",
+      "save": "Save",
+      "skip": "Skip"
     },
     "safety": {
       "unsafe": "This message could frighten or upset the patient. Please rephrase it gently, for example: 'Timothy will be home at 5.'",
@@ -318,5 +328,13 @@
     }
   },
   "menu": "Menu",
-  "regenerate": "Get a new code"
+  "regenerate": "Get a new code",
+  "connected": {
+    "label": "Connected · {{name}}",
+    "more": "{{name}} +{{count}}",
+    "fallbackName": "Caregiver",
+    "full": "Connected to {{name}}",
+    "fullMore": "Connected to {{name}} and {{count}} more caregivers",
+    "holdHint": "Hold for 3 seconds to connect another caregiver"
+  }
 }

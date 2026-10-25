@@ -294,13 +294,23 @@
         "logoutBody": "Untuk masuk lagi Anda memerlukan kode baru dari tablet (Aktifkan koneksi caregiver).",
         "deviceMode": "Mode perangkat",
         "changeMode": "Ganti mode",
+        "nameHint": "Tablet menampilkan \"Terhubung · nama Anda\". Kosongkan untuk menampilkan \"Caregiver\".",
         "errors": {
-          "name": "Isi nama.",
+          "name": "Gunakan 2 sampai 40 huruf. Spasi dan . ' - boleh.",
+          "nameUnsafe": "Nama ini tidak bisa ditampilkan kepada pasien. Mohon gunakan nama Anda atau panggilan yang ramah.",
           "email": "Isi alamat email yang valid.",
           "emailTaken": "Email itu sudah dipakai akun lain."
         }
       },
       "recordingNotice": "Rekaman suara disimpan untuk waktu terbatas, dan Anda dapat menghapusnya."
+    },
+    "nameSheet": {
+      "title": "Kami panggil Anda siapa?",
+      "body": "Tablet akan menampilkan \"Terhubung · nama Anda\" kepada pasien.",
+      "label": "Nama Anda",
+      "placeholder": "mis. Rina",
+      "save": "Simpan",
+      "skip": "Lewati"
     },
     "safety": {
       "unsafe": "Pesan ini bisa membuat pasien takut atau sedih. Mohon tulis ulang dengan lembut, misalnya: 'Timothy akan pulang jam 5.'",
@@ -318,5 +328,13 @@
     }
   },
   "menu": "Menu",
-  "regenerate": "Buat kode baru"
+  "regenerate": "Buat kode baru",
+  "connected": {
+    "label": "Terhubung · {{name}}",
+    "more": "{{name}} +{{count}}",
+    "fallbackName": "Caregiver",
+    "full": "Terhubung dengan {{name}}",
+    "fullMore": "Terhubung dengan {{name}} dan {{count}} caregiver lain",
+    "holdHint": "Tahan 3 detik untuk menghubungkan caregiver lain"
+  }
 }

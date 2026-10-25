@@ -4,6 +4,7 @@
  */
 
 const { query } = require('../db/query');
+const { memberSql } = require('./ownership');
 const { isUsable, withPending, rescreenContextItem, ensureScreened } = require('./storedSafety');
 
 const ITEM_COLUMNS = `id, patient_id, scope, text, context_date, created_at, blocked_category,
@@ -39,17 +40,17 @@ async function createItem({ patientId, scope, text, stored }) {
   return withPending(result.rows[0]);
 }
 
-/** Returns { item, caregiver_id } or null — used for the ownership check on :id routes. */
-async function findItemWithOwner(id) {
+/** Returns { item, caregiver_id, is_member } or null — used for the ownership check on :id routes. */
+async function findItemWithOwner(id, caregiverId) {
   const result = await query(
-    `SELECT ci.id, ci.patient_id, ci.scope, ci.text, ci.context_date, ci.created_at, p.caregiver_id
+    `SELECT ci.id, ci.patient_id, ci.scope, ci.text, ci.context_date, ci.created_at, p.caregiver_id, ${memberSql('p.id', '$2')} AS is_member
      FROM context_items ci JOIN patients p ON p.id = ci.patient_id
      WHERE ci.id = $1`,
-    [id]
+    [id, caregiverId]
   );
   if (result.rows.length === 0) return null;
-  const { caregiver_id, ...item } = result.rows[0];
-  return { item, caregiver_id };
+  const { caregiver_id, is_member, ...item } = result.rows[0];
+  return { item, caregiver_id, is_member };
 }
 
 async function updateItem(id, text, stored) {

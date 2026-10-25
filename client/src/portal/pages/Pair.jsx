@@ -74,7 +74,8 @@ export default function Pair() {
     try {
       const data = await pairWithCode(code, { token: linkToken })
       setSession(data)
-      navigate(linkToken ? '/portal/settings' : '/portal', { replace: true })
+      // A first pairing asks "What should we call you?" when the caregiver has no name (PortalApp useAskName)
+      navigate(linkToken ? '/portal/settings' : '/portal', { replace: true, state: linkToken ? null : { askName: true } })
     } catch (err) {
       console.error('pair failed:', err.message)
       if (linkToken && err.status === 401) {

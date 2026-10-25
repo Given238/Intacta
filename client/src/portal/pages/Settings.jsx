@@ -21,6 +21,7 @@ import i18n from '../../i18n'
 import { goToModeChooser } from '../../lib/startMode'
 import { portalFetch, portalFetchBlob } from '../portalApi'
 import { getSession, clearSession } from '../session'
+import { checkName, saveCaregiverName, nameErrorKey } from '../caregiverName'
 import { usePortalLoad, sessionPatientId } from '../usePortalLoad'
 import { usePortalSocket, emitWithAck } from '../usePortalSocket'
 import PortalToast from '../components/PortalToast'
@@ -422,25 +423,29 @@ function AccountCard({ caregiver, onSaved, onLogout }) {
   const [state,  setState]  = useState(null)
 
   const saveField = async (field, raw) => {
-    const value = raw.trim()
+    // The name is shown on the tablet: person-name rules here, the same rules + the safety check on the server
+    const name = field === 'name' ? checkName(raw) : null
+    const value = field === 'name' ? (name.value || '') : raw.trim()
     const current = caregiver?.[field] || ''
-    if (value === current) return
-    if (field === 'name' && !value) { setErrors(e => ({ ...e, name: t('portal.settings.account.errors.name') })); return }
+    if (field === 'name' && !name.ok) { setErrors(e => ({ ...e, name: t('portal.settings.account.errors.name') })); return }
+    if (value === current) { setErrors(e => ({ ...e, [field]: null })); return }
     if (field === 'email' && value && !EMAIL.test(value)) { setErrors(e => ({ ...e, email: t('portal.settings.account.errors.email') })); return }
     setErrors(e => ({ ...e, [field]: null }))
     setState('saving')
     try {
-      const { caregiver: next } = await portalFetch('/api/caregiver', {
-        method: 'PUT',
-        body: JSON.stringify({ [field]: value || null }),
-      })
+      const next = field === 'name'
+        ? await saveCaregiverName(value || null)
+        : (await portalFetch('/api/caregiver', { method: 'PUT', body: JSON.stringify({ [field]: value || null }) })).caregiver
       onSaved(next)
+      if (field === 'name') setName(next?.name || '')
       setState('saved')
       setTimeout(() => setState(s => (s === 'saved' ? null : s)), 2000)
     } catch (err) {
       if (err.code === 'unauthorized') return
       setState(null)
-      setErrors(e => ({ ...e, [field]: err.code === 'email_taken' ? t('portal.settings.account.errors.emailTaken') : t('portal.settings.saveFailed') }))
+      const key = field === 'name' ? nameErrorKey(err)
+        : err.code === 'email_taken' ? 'portal.settings.account.errors.emailTaken' : 'portal.settings.saveFailed'
+      setErrors(e => ({ ...e, [field]: t(key) }))
     }
   }
 
@@ -462,11 +467,12 @@ function AccountCard({ caregiver, onSaved, onLogout }) {
       </div>
       <div className="grid grid-cols-[56px_1fr] items-center gap-x-2 gap-y-2">
         <label htmlFor="cg-name" className="text-caption text-muted">{t('portal.settings.account.name')}</label>
-        <input id="cg-name" value={name} maxLength={100} autoComplete="name"
+        <input id="cg-name" value={name} maxLength={40} autoComplete="name"
           onChange={e => setName(e.target.value)} onBlur={e => saveField('name', e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
-          aria-invalid={!!errors.name} aria-describedby="cg-name-error" className={field} />
-        {errors.name && <p id="cg-name-error" className="text-caption col-start-2 text-danger-soft">{errors.name}</p>}
+          aria-invalid={!!errors.name} aria-describedby="cg-name-hint cg-name-error" className={field} />
+        <p id="cg-name-hint" className="text-caption col-start-2 text-muted">{t('portal.settings.account.nameHint')}</p>
+        {errors.name && <p id="cg-name-error" role="alert" className="text-caption col-start-2 text-danger-soft">{errors.name}</p>}
         <label htmlFor="cg-email" className="text-caption text-muted">{t('portal.settings.account.email')}</label>
         <input id="cg-email" type="email" value={email} maxLength={255} autoComplete="email" inputMode="email"
           onChange={e => setEmail(e.target.value)} onBlur={e => saveField('email', e.target.value)}

@@ -66,7 +66,8 @@ ALL patient-facing LLM output:
 
 ## Content Safety (NON-NEGOTIABLE): text that reaches the patient
 - One module: `server/src/services/contentSafety.js` → `checkPatientFacingText(text, {language, kind})` →
-  `{ok, category, reason, sensitive, score}`; kind = context | broadcast | routine | voice_test | reply.
+  `{ok, category, reason, sensitive, score}`; kind = context | broadcast | routine | voice_test | reply | display_name
+  (display_name = the caregiver's own name, shown on the terminal as "Connected · {name}").
 - NO word lists. The ONLY decision-maker is a Gemini classifier judging MEANING (any language, slang, misspelling, implication)
   against a rubric with 10-12 few-shot examples (principles, never a list to match). Before the call only technical hygiene:
   NFKC, control/invisible characters stripped, whitespace collapsed, trim, max 300 chars. Temperature 0, structured JSON
@@ -79,7 +80,7 @@ ALL patient-facing LLM output:
   project; the ensemble compensates). Lowest thinking level the model accepts (`minimal` for 3.0-3.6, `low` for 3.7+).
 - Categories: threat_or_harm, death_or_harm_prediction, fear_inducing, abandonment_or_shaming, abuse_or_insult, sexual,
   harmful_instruction, sensitive_fact, other, none.
-- Block when either judge says decision=block OR distress ≥ 3. Spoken kinds (broadcast, routine, voice_test, reply) also block when
+- Block when either judge says decision=block OR distress ≥ 3. Spoken/shown kinds (broadcast, routine, voice_test, reply, display_name) also block when
   spoken_aloud_ok=false or category=sensitive_fact. kind=context + sensitive_fact (not addressed to the patient) is SAVED with
   `sensitive=true`: never sent to the terminal, given to the LLM as a PRIVATE note it must never mention or hint at.
 - Bump `SAFETY_VERSION` whenever the rubric, threshold or model changes (stored rows are then re-screened).
@@ -90,7 +91,8 @@ ALL patient-facing LLM output:
 - Validate input at the boundary (zod). Invalid time → 400 with a field-level error (FR-4.1.3).
 - Every caregiver mutation writes an audit log (caregiver_id + ISO-8601 timestamp).
 - Secrets only in .env (GEMINI_API_KEY, ELEVENLABS_API_KEY, JWT_SECRET, DATABASE_URL, CLIENT_ORIGIN, API_ORIGIN). Gemini and ElevenLabs are called from the server only, never from the browser.
-- Terminal localStorage is limited to: device_token and the 24h context cache (plus the start menu's `intacta_mode` {mode}).
+- Terminal localStorage is limited to: device_token (+ device_id, patient_id, terminal_language), the 24h context cache,
+  `terminal_connection` {paired, name, count} (last known header chip state) and the start menu's `intacta_mode` {mode}.
 
 ## Pairing Flow (code-based, replaces QR)
 1. Terminal header "▶ Enable / caregiver connection" (id: "Aktifkan / koneksi caregiver") calls `POST /api/devices/register` →
@@ -100,13 +102,20 @@ ALL patient-facing LLM output:
    The terminal never switches to a caregiver view (never call it "Caregiver mode"). The pair screen pre-fills `?code=` (never auto-submits)
    and clears it from the URL (`portal/pairCode.js`).
 2. Caregiver enters the code on the phone → `POST /api/devices/pair {code}`: PUBLIC (no login), rate-limited 5/min/IP.
-   No Authorization header → a new caregiver (email/password NULL) + patient are created (or the device's existing patient is kept).
-   With a caregiver JWT ("Pair New Tablet") → the device links to that caregiver's patient. A bad JWT → 401.
-   Returns `{success, token, patient_id, language, device_name}`; token = caregiver JWT {caregiverId, patientId}. Audited `device.pair`.
+   Device already has a patient → it is kept (never a second patient): without a JWT a NEW caregiver (email/password NULL) is
+   created and joins that patient's care team (never the first caregiver's login); with a JWT that caregiver joins it.
+   Unpaired device: no JWT → new caregiver + patient; JWT ("Pair New Tablet") → that caregiver's patient. A bad JWT → 401.
+   Everyone who pairs is upserted into `patient_caregivers` (paired_at = now: the most recently paired caregiver is the one shown).
+   Returns `{success, token, patient_id, language, device_name}`; token = caregiver JWT {caregiverId, patientId}. Audited `device.pair`
+   {device_id, patient_id, created_patient, joined_existing}.
    Errors `{error, code}`: 400 `code_required`/`invalid_code`, 409 `code_used`, 410 `code_expired`, 429 `rate_limited`.
    Codes are stored as SHA-256 (`devices.pairing_code`) and marked used via `devices.code_used_at` (never cleared on pair).
-3. Server moves the terminal's `device:{id}` sockets into `patient:{id}` and emits `device:paired`, `context:sync`, `settings:sync` to it. The terminal keeps the device_token from step 1.
-Logic lives in `server/src/services/pairingService.js`.
+3. Server moves the terminal's `device:{id}` sockets into `patient:{id}` and emits `device:paired`, `context:sync`, `settings:sync` to it,
+   plus `caregiver:updated` to the patient room and every device of the patient. The terminal keeps the device_token from step 1.
+4. Care team (migration 009): access to a patient = `patients.caregiver_id` (creator) OR a `patient_caregivers` row
+   (`services/ownership.js` memberSql/onCareTeam; used by every ownership check). A paired terminal gets a fresh code WITHOUT
+   unpairing via `POST /api/device/pairing-code` (x-device-token); `/api/devices/register` resets the pairing (unpaired terminals only).
+Logic lives in `server/src/services/pairingService.js` and `services/careTeamService.js`.
 Known limitation (state it in the pitch): code-only caregiver auth is a hackathon simplification; production adds caregiver login.
 
 ## Routes, start menu and modes (UX)
@@ -124,6 +133,16 @@ Known limitation (state it in the pitch): code-only caregiver auth is a hackatho
 - Audio: choosing "Patient tablet" swaps to the terminal without a reload, and that tap unlocks audio + requests the mic, so the
   "Tap to start" gate is skipped. Direct loads/reloads of `/terminal` keep the gate; if audio is still blocked, the gate comes back.
 - Wording: the terminal header button is "Enable caregiver connection" (see Pairing Flow); never "Caregiver mode".
+- Terminal header states (`components/Header.jsx`, `lib/connection.js`): UNPAIRED → the two buttons + divider (wide) / Menu (compact).
+  PAIRED → buttons, divider and menu hidden (inert) and a non-interactive chip "Connected · {name}" (id "Terhubung · {name}") with a
+  green dot; several caregivers → "{first name} +N" ("+N" never truncates); no name → "Caregiver"; long names ellipsize, the full
+  name is the aria-label. 250 ms cross-fade (none with reduced motion). First paint uses `terminal_connection`, then the server
+  reconciles (GET /api/device/context; 401 → unpaired), `device:paired` and `caregiver:updated` (count 0 = unpaired → buttons return).
+  Any pairing closes the popup. Holding the chip 3 s (touch/mouse, early release cancels, a tap does nothing; its own timer, separate
+  from the logo's) opens the same "Connect a caregiver" popup with a fresh code (`/api/device/pairing-code`).
+- Portal caregiver name: Settings → Account & Security (Name), and after a first pairing (Pair navigates with state {askName}) a
+  skippable sheet "What should we call you?" when the caregiver has no name (`portal/components/NameSheet.jsx`). Both save through
+  PUT /api/caregiver (`portal/caregiverName.js`); blocked → "This name can't be shown to the patient…".
 
 ## Socket.IO Contract (keep in sync)
 - server → terminal: `context:sync` {payload: {patient_name, language, daily[{id,text}], permanent[{id,text}]}, updated_at}
@@ -137,7 +156,10 @@ Known limitation (state it in the pitch): code-only caregiver auth is a hackatho
 - caregiver → server: `broadcast:message` {patientId, text ≤200, safety-checked, 10/min} → terminal `broadcast:message` {text, created_at}
   (+ `interaction:new` source=broadcast; logged + audited; ack {success})
 - caregiver → server: `voice:test` {patientId} → terminal `voice:test` {text, language, voice_gender, playback_speed, volume_db}; ack {success}
-- server → terminal: `device:paired` {patient_id, language}
+- server → terminal: `device:paired` {patient_id, language, caregiver_name (most recently paired; null if unset/unscreened), caregiver_count}
+- server → terminal + portal: `caregiver:updated` {name, count} to `patient:{id}` and every `device:{id}` of the patient: after any
+  pairing, a caregiver name change (all teams of that caregiver), a name passing its background re-screen, and to a terminal on
+  connect ({name:null, count:0} when it is not paired).
 - terminal → server: `device:status` {online, battery 0-100, power} → portal `device:status` {device_id, online, battery, power}
 Rooms: `device:{id}` (terminal, from connect) and `patient:{id}`. JWT on caregiver sockets (`auth.token`);
 device_token on terminal sockets (`auth.device_token`, unpaired devices may connect). Caregiver events check patient ownership.
@@ -154,7 +176,12 @@ Caregiver JWT (`Authorization: Bearer`), ownership checked on every route (404 u
 - `GET/POST /api/routines`, `GET/PUT/DELETE /api/routines/:id`: also take `title` and `days` (0=Sun..6=Sat, default all).
 - `GET /api/patient/status?patientId` → {status: {patient_id, patient_name, language, device: {id, name, online, battery, last_seen_at} | null}}
 - `GET /api/interactions?patientId&limit=20(≤100)&before=<id>` → {interactions (newest first), next_before}
-Terminal (`x-device-token`): `GET /api/device/context` → {context: {patient_name, daily, permanent}, language, updated_at};
+- `GET /api/caregiver` → {caregiver: {id, name, email}} · `PUT` {name?, email?}: name = person name (letters any script, spaces,
+  . ' - ; 2-40 chars; typographic apostrophe → '; '' or null → none, shown as "Caregiver") → 400 field error; then the content safety
+  gate (kind display_name) → 422 unsafe_content / 503 safety_unavailable, nothing saved. Saved with name_safety_version/verdict;
+  the terminal shows a name only with a current allow verdict (stale → background re-screen). Emits `caregiver:updated`.
+Terminal (`x-device-token`): `GET /api/device/context` → {context: {patient_name, daily, permanent}, language, updated_at,
+caregiver_name, caregiver_count}; `POST /api/device/pairing-code` → {code, expires_at} (keeps the pairing and token);
 `GET /api/device/settings` → {settings}; `POST /api/respond` {transcript, source} (JSON) or multipart {audio (16 kHz mono WAV),
 source:'voice'} → server STT (Gemini audio, `GEMINI_STT_MODEL` else `GEMINI_MODEL`) → chain → {transcript, text, parts, meta};
 empty/junk transcript → {transcript:'', text:null, parts:[], meta:{no_speech}} (no reply, not logged); STT failure → 502.
@@ -236,7 +263,9 @@ Always: get_design_context + get_screenshot for the node before building. Clip e
 - `npm run llm:bench -- [--timeout ms] [--out file.json]`: 40-utterance × 2-context fallback/latency benchmark on the real model
 
 ## Database Schema Keys
-- `caregivers` (email + password_hash nullable since migration 004: code-paired caregivers have no login), `patients` (language: id|en; linked to caregiver)
+- `caregivers` (email + password_hash nullable since migration 004: code-paired caregivers have no login; name_safety_version,
+  name_safety_verdict since 009), `patients` (language: id|en; caregiver_id = creator)
+- `patient_caregivers` (009): patient_id, caregiver_id, paired_at (PK patient+caregiver): the care team; backfilled with every creator
 - `devices`: id, device_uid, name (e.g. "Tablet - Ruang Tamu"), patient_id, token_hash, pairing_code (SHA-256), code_expires_at, code_used_at, last_seen_at, battery, is_online
 - `context_items`: id, patient_id, scope (daily|permanent), text (≤200), context_date (NULL for permanent), created_at, blocked_category
   (`daily_contexts` is legacy: migration 003 copies today's rows over; no code reads it)

@@ -8,6 +8,8 @@
 
 const crypto = require('crypto');
 const { query } = require('../db/query');
+const { memberSql } = require('./ownership');
+const { addToCareTeam } = require('./careTeamService');
 
 const DEFAULT_PATIENT_NAME = 'Patient';
 const DEFAULT_LANGUAGE     = 'id';
@@ -25,10 +27,11 @@ function hashCode(code) {
   return crypto.createHash('sha256').update(code).digest('hex');
 }
 
-/** Caregiver's first patient, created when the caregiver has none ("Pair New Tablet"). */
+/** Caregiver's first patient (created or joined), created when the caregiver has none ("Pair New Tablet"). */
 async function patientForCaregiver(caregiverId) {
   const existing = await query(
-    'SELECT id, caregiver_id, language FROM patients WHERE caregiver_id = $1 ORDER BY id LIMIT 1',
+    `SELECT id, caregiver_id, language FROM patients WHERE caregiver_id = $1 OR ${memberSql('patients.id', '$1')}
+     ORDER BY id LIMIT 1`,
     [caregiverId]
   );
   if (existing.rows.length > 0) return { patient: existing.rows[0], created: false };
@@ -56,12 +59,20 @@ async function createCaregiverAndPatient() {
   return result.rows[0];
 }
 
+/** New caregiver with no login yet (a second phone joining an existing patient). */
+async function createCaregiver() {
+  const result = await query('INSERT INTO caregivers (name) VALUES (NULL) RETURNING id');
+  return result.rows[0].id;
+}
+
 /**
- * Pair the device holding `code`.
- * - caregiverId given  → link to that caregiver's patient.
- * - device has patient → keep it; the JWT goes to that patient's caregiver.
- * - otherwise          → create a caregiver + patient.
- * Returns { caregiverId, patientId, language, deviceId, deviceName, createdPatient }.
+ * Pair the device holding `code`. Whoever pairs joins the patient's care team (patient_caregivers) and becomes
+ * the most recently paired caregiver (the name the terminal shows).
+ * - device already has a patient → keep it (never a second patient). With a caregiver JWT that caregiver joins
+ *   the team; without one a NEW caregiver is created and joins it (the phone never gets another caregiver's login).
+ * - unpaired device, caregiver JWT → that caregiver's patient ("Pair New Tablet").
+ * - unpaired device, no JWT        → create a caregiver + patient.
+ * Returns { caregiverId, patientId, language, deviceId, deviceName, createdPatient, joinedExisting }.
  * Throws PairingError (4xx) for invalid / expired / used codes.
  */
 async function pairWithCode({ code, caregiverId = null }) {
@@ -89,20 +100,26 @@ async function pairWithCode({ code, caregiverId = null }) {
 
   try {
     let patient;
+    let pairedBy = caregiverId;
     let createdPatient = false;
-    if (caregiverId) {
-      ({ patient, created: createdPatient } = await patientForCaregiver(caregiverId));
-    } else if (device.patient_id !== null) {
+    if (device.patient_id !== null) {
       const existing = await query(
         'SELECT id, caregiver_id, language FROM patients WHERE id = $1',
         [device.patient_id]
       );
       patient = existing.rows[0];
+      if (patient && !pairedBy) pairedBy = await createCaregiver();
+    }
+    const joinedExisting = Boolean(patient);
+    if (!patient && pairedBy) {
+      ({ patient, created: createdPatient } = await patientForCaregiver(pairedBy));
     }
     if (!patient) {
       patient = await createCaregiverAndPatient();
+      pairedBy = patient.caregiver_id;
       createdPatient = true;
     }
+    await addToCareTeam(patient.id, pairedBy);
 
     const linked = await query(
       `UPDATE devices
@@ -114,12 +131,13 @@ async function pairWithCode({ code, caregiverId = null }) {
     );
 
     return {
-      caregiverId:    patient.caregiver_id,
+      caregiverId:    pairedBy,
       patientId:      patient.id,
       language:       patient.language || DEFAULT_LANGUAGE,
       deviceId:       device.id,
       deviceName:     linked.rows[0]?.name || DEFAULT_DEVICE_NAME,
       createdPatient,
+      joinedExisting,
     };
   } catch (err) {
     // Linking failed after the claim: give the code back so the caregiver can retry.

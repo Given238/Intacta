@@ -38,6 +38,21 @@ describe('logo long press', () => {
     expect(onFire).toHaveBeenCalledTimes(1)
   })
 
+  it('the "Connected" chip and the logo hold are independent (separate timers, no cross-talk)', () => {
+    const onSwitch = vi.fn()
+    const onConnect = vi.fn()
+    const logo = createLongPress({ onFire: onSwitch })
+    const chip = createLongPress({ onFire: onConnect })
+    chip.start(); vi.advanceTimersByTime(1000)
+    logo.start(); vi.advanceTimersByTime(500); logo.cancel() // a short press on the logo does not touch the chip
+    vi.advanceTimersByTime(2000)
+    expect(onConnect).toHaveBeenCalledTimes(1)
+    expect(onSwitch).not.toHaveBeenCalled()
+    chip.start(); vi.advanceTimersByTime(2999); chip.cancel() // early release cancels
+    vi.advanceTimersByTime(5000)
+    expect(onConnect).toHaveBeenCalledTimes(1)
+  })
+
   it('fires once per hold', () => {
     const onFire = vi.fn()
     const lp = createLongPress({ onFire })

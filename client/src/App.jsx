@@ -12,6 +12,7 @@ import { replyTextOf } from './lib/replyLifecycle'
 import { speak, unlockAudio } from './lib/speaker'
 import { requestMic } from './lib/voiceInput'
 import { createSpeechQueue } from './lib/speechQueue'
+import { UNPAIRED, fromServer, loadConnection, saveConnection } from './lib/connection'
 
 import StartGate from './components/StartGate'
 import Home      from './pages/Home'
@@ -66,9 +67,30 @@ export default function App({ boot = null }) {
   const [ttsError,      setTtsError]      = useState(null) // dev overlay: why the last reply used browser speech
   const [replyMeta,     setReplyMeta]     = useState(null) // dev overlay: last /api/respond meta (backup reply, reason)
   const [micStream,     setMicStream]     = useState(() => boot?.mic || null) // Promise<MediaStream>, requested inside the Start tap
+  // Header chip "Connected · {name}": last known state first (no flash of the buttons), then the server's
+  const [connection, setConnection] = useState(loadConnection)
+  const [pairedTick, setPairedTick] = useState(0) // +1 on every device:paired (closes the popup)
+  const connectionRef = useRef(connection)
+  connectionRef.current = connection
   const navigateRef = useRef(null)
 
   const { socket } = useSocket(deviceToken)
+
+  useEffect(() => { saveConnection(connection) }, [connection])
+
+  /* ── Reconcile the cached connection with the server (reloads, a device unpaired meanwhile) ── */
+  useEffect(() => {
+    if (!deviceToken) { setConnection(UNPAIRED); return }
+    let live = true
+    terminalFetch('/api/device/context')
+      .then(body => { if (live) setConnection(fromServer(body, { paired: true })) })
+      .catch(e => {
+        if (!live) return
+        if (e.status === 401 || e.status === 404) setConnection(UNPAIRED) // not paired (any more)
+        else console.warn('connection check failed, keeping the last known state:', e.message)
+      })
+    return () => { live = false }
+  }, [deviceToken])
 
   /* ── One reply path (via say below): typed/voice (/api/respond, response:ready), broadcast, routine, voice test ── */
   const { phase, reply, presentReply: present, highlightIndex } = useReplyLifecycle({
@@ -161,13 +183,20 @@ export default function App({ boot = null }) {
     return () => { live = false }
   }, [boot])
 
-  /* ── Register device → get pairing code ── */
+  /* ── Pairing code: register (unpaired) or a fresh code that keeps the pairing (paired: another caregiver) ── */
   const handleRegisterDevice = useCallback(async () => {
     setRegLoading(true)
     setRegError(null)
     const deviceId = localStorage.getItem('device_id') || crypto.randomUUID()
     localStorage.setItem('device_id', deviceId)
     try {
+      if (connectionRef.current.paired) {
+        const data = await terminalFetch('/api/device/pairing-code', { method: 'POST' })
+        setPairingCode(data.code)
+        const exp = Date.parse(data.expires_at)
+        setPairingExpiresAt(Number.isFinite(exp) ? exp : null)
+        return
+      }
       let res
       try {
         res = await fetch(`${API}/api/devices/register`, {
@@ -188,6 +217,7 @@ export default function App({ boot = null }) {
       setPairingExpiresAt(Number.isFinite(exp) ? exp : null)
       localStorage.setItem('device_token', data.device_token)
       setDeviceToken(data.device_token)
+      setConnection(UNPAIRED) // registering resets the pairing on the server
     } catch (e) {
       console.error(e)
       setRegError(e.message || 'register failed')
@@ -205,22 +235,25 @@ export default function App({ boot = null }) {
   /* ── On device:paired ── */
   useEffect(() => {
     if (!socket) return
-    const onPair = async (payload) => {
+    const onPair = (payload = {}) => {
       localStorage.setItem('patient_id', payload.patient_id)
       setPatientId(payload.patient_id)
-      try {
-        const p = await terminalFetch('/api/patients/me')
-        if (p?.language) {
-          localStorage.setItem('terminal_language', p.language)
-          setLanguage(p.language)
-        }
-      } catch (e) {
-        console.error('patients/me failed:', e.message)
+      if (payload.language === 'id' || payload.language === 'en') {
+        localStorage.setItem('terminal_language', payload.language)
+        setLanguage(payload.language)
       }
+      setConnection(fromServer(payload, { paired: true }))
+      setPairedTick(n => n + 1)
       setPairingCode(null)
     }
+    // Name edited in Settings, another caregiver paired, or the state on (re)connect; count 0 = not paired
+    const onCaregiver = (payload = {}) => setConnection(fromServer(payload))
     socket.on('device:paired', onPair)
-    return () => socket.off('device:paired', onPair)
+    socket.on('caregiver:updated', onCaregiver)
+    return () => {
+      socket.off('device:paired', onPair)
+      socket.off('caregiver:updated', onCaregiver)
+    }
   }, [socket])
 
   /* ── context:sync (also carries the patient's language) ── */
@@ -318,13 +351,15 @@ export default function App({ boot = null }) {
         socket={socket}
         deviceToken={deviceToken}
         patientId={patientId}
+        connection={connection}
+        pairedTick={pairedTick}
       />
     </BrowserRouter>
   )
 }
 
 /* ── Routes sub-component (inside BrowserRouter) ── */
-function TerminalRoutes({ language, pairingCode, pairingExpiresAt, onRequestCode, regLoading, regError, context, phase, reply, highlightIndex, say, ttsError, micState, micInfo, micUnavailable, navigateRef, socket, deviceToken, patientId }) {
+function TerminalRoutes({ connection, pairedTick, language, pairingCode, pairingExpiresAt, onRequestCode, regLoading, regError, context, phase, reply, highlightIndex, say, ttsError, micState, micInfo, micUnavailable, navigateRef, socket, deviceToken, patientId }) {
   const navigate = useNavigate()
   const { typedOpen, setTypedOpen, debugOpen } = useDevShortcuts()
   // No microphone (denied / missing): the typed input is the way to talk to the terminal.
@@ -342,6 +377,8 @@ function TerminalRoutes({ language, pairingCode, pairingExpiresAt, onRequestCode
           path="/terminal"
           element={
             <Home
+              connection={connection}
+              pairedTick={pairedTick}
               language={language}
               pairingCode={pairingCode}
               pairingExpiresAt={pairingExpiresAt}

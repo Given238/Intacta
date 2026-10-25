@@ -7,15 +7,19 @@
 
 const jwt    = require('jsonwebtoken');
 const { query } = require('../db/query');
-const { patientAccess, ACCESS_ERRORS } = require('../services/ownership');
+const { patientAccess, ACCESS_ERRORS, memberSql } = require('../services/ownership');
 const { buildContextSync, loadContextSnapshot } = require('../services/contextService');
 const { buildSettingsSync, getSettings } = require('../services/settingsService');
 const { logAudit } = require('../services/audit');
 const { logInteraction } = require('../llm/interactionLogger');
 const { deliverPending } = require('../services/routineScheduler');
 const { screenOrRefuse } = require('../services/safetyGate');
+const { caregiverSummary, emitForCaregiver, setRescreenListener } = require('../services/careTeamService');
 
 function setupSocket(io) {
+  // A caregiver name that passed its re-screen can now be shown: tell the terminals and portals
+  setRescreenListener((caregiverId) => emitForCaregiver(io, caregiverId));
+
   // ── Dual-auth handshake middleware ─────────────────────────────────────────
   io.use(async (socket, next) => {
     // 1. Try caregiver JWT
@@ -75,7 +79,7 @@ function setupSocket(io) {
       socket.on('voice:test', handleVoiceTest(io, socket));
       try {
         const patients = await query(
-          'SELECT id FROM patients WHERE caregiver_id = $1',
+          `SELECT id FROM patients WHERE caregiver_id = $1 OR ${memberSql('patients.id', '$1')}`,
           [socket.caregiverId]
         );
         for (const row of patients.rows) {
@@ -88,7 +92,7 @@ function setupSocket(io) {
       socket.on('join_patient', async (patientId) => {
         if (!patientId) return;
         const result = await query(
-          'SELECT id FROM patients WHERE id = $1 AND caregiver_id = $2',
+          `SELECT id FROM patients WHERE id = $1 AND (caregiver_id = $2 OR ${memberSql('patients.id', '$2')})`,
           [patientId, socket.caregiverId]
         );
         if (result.rows.length === 0) {
@@ -111,6 +115,9 @@ function setupSocket(io) {
         await sendTerminalState(socket, socket.patientId);
         // Routines that came due while this terminal was offline (≤ GRACE_MIN minutes ago)
         deliverPending(io, socket.patientId);
+      } else {
+        // Not paired (any more): the terminal shows the connect buttons, not a cached "Connected" chip
+        socket.emit('caregiver:updated', { name: null, count: 0 });
       }
 
       socket.on('device:status', handleDeviceStatus(io, socket));
@@ -124,13 +131,14 @@ function setupSocket(io) {
 
 // ── Shared handlers ────────────────────────────────────────────────────────────
 
-/** context:sync + settings:sync to one terminal socket (connect / reconnect). */
+/** context:sync + settings:sync + caregiver:updated to one terminal socket (connect / reconnect). */
 async function sendTerminalState(socket, patientId) {
   try {
     const context = await buildContextSync(patientId);
     if (context) socket.emit('context:sync', context);
     const settings = await buildSettingsSync(patientId);
     if (settings) socket.emit('settings:sync', settings);
+    socket.emit('caregiver:updated', await caregiverSummary(patientId));
   } catch (err) {
     console.error('Failed to send terminal state on connect:', err.message);
   }

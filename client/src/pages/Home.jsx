@@ -19,6 +19,8 @@ import SwitchModeSheet from '../components/SwitchModeSheet'
 import { goToModeChooser } from '../lib/startMode'
 
 export default function Home({
+  connection,
+  pairedTick = 0,
   language,
   pairingCode,
   pairingExpiresAt,
@@ -54,11 +56,24 @@ export default function Home({
     if (prevCode.current && !pairingCode) setShowPopup(false)
     prevCode.current = pairingCode
   }, [pairingCode])
+  // Every pairing (also a second caregiver joining) closes it, even when no code had been shown yet
+  useEffect(() => { if (pairedTick) setShowPopup(false) }, [pairedTick])
+
+  // Paired: holding the "Connected" chip 3 s opens the same popup with a fresh code (another caregiver can pair)
+  const onRequestCodeRef = useRef(onRequestCode)
+  onRequestCodeRef.current = onRequestCode
+  const openForAnotherCaregiver = useCallback(() => {
+    setSwitchOpen(false)
+    setShowPopup(true)
+    onRequestCodeRef.current()
+  }, [])
 
   return (
     <TerminalStage
       header={
         <Header
+          connection={connection}
+          onChipHold={openForAnotherCaregiver}
           language={language}
           showPopup={showPopup}
           onAuthCode={handleAuthCode}

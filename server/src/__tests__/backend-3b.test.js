@@ -66,9 +66,9 @@ function routeQueries(routes) {
 }
 
 // caregiver 1 owns patient 5; patient 6 belongs to caregiver 999
-const OWNER = [/SELECT caregiver_id FROM patients WHERE id/, () => []];
+const OWNER = [/SELECT caregiver_id, .* FROM patients WHERE id/, () => []];
 function owns(patientCaregiver) {
-  return [/SELECT caregiver_id FROM patients WHERE id/, [{ caregiver_id: patientCaregiver }]];
+  return [/SELECT caregiver_id, .* FROM patients WHERE id/, [{ caregiver_id: patientCaregiver }]];
 }
 const SNAPSHOT_ROUTES = [
   [/SELECT name, language FROM patients/, [{ name: 'Eleanor Vance', language: 'en' }]],
@@ -144,7 +144,7 @@ describe('CRUD /api/context-items', () => {
   });
 
   it.each([[404, []], [403, [{ caregiver_id: 999 }]]])('GET returns %i for a patient the caregiver does not own', async (code, rows) => {
-    routeQueries([[/SELECT caregiver_id FROM patients WHERE id/, rows]]);
+    routeQueries([[/SELECT caregiver_id, .* FROM patients WHERE id/, rows]]);
     const res = makeRes();
     await contextItems.listContextItems({ caregiverId: 1, validQuery: { patientId: 6 } }, res);
     expect(res.status).toHaveBeenCalledWith(code);
@@ -257,7 +257,7 @@ describe('GET/PUT /api/settings', () => {
   });
 
   it.each([[404, []], [403, [{ caregiver_id: 999 }]]])('GET returns %i when not the owner', async (code, rows) => {
-    routeQueries([[/SELECT caregiver_id FROM patients WHERE id/, rows]]);
+    routeQueries([[/SELECT caregiver_id, .* FROM patients WHERE id/, rows]]);
     const res = makeRes();
     await settingsCtl.getSettings({ caregiverId: 1, validQuery: { patientId: 6 } }, res);
     expect(res.status).toHaveBeenCalledWith(code);
@@ -318,7 +318,7 @@ describe('GET /api/patient/status', () => {
   });
 
   it.each([[404, []], [403, [{ caregiver_id: 999 }]]])('returns %i when not the owner', async (code, rows) => {
-    routeQueries([[/SELECT caregiver_id FROM patients WHERE id/, rows]]);
+    routeQueries([[/SELECT caregiver_id, .* FROM patients WHERE id/, rows]]);
     const res = makeRes();
     await patientCtl.getPatientStatus({ caregiverId: 1, validQuery: { patientId: 6 } }, res);
     expect(res.status).toHaveBeenCalledWith(code);

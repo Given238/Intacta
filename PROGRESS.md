@@ -1019,6 +1019,54 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 
 ---
 
+## Part D: terminal shows "Connected · {name}" after pairing (2026-10-25, branch `phase-7-safety-replies-layout`)
+
+### Inspection findings
+- **Second caregiver bug (fixed):** pairing a device that already had a patient WITHOUT a login returned a JWT for the
+  patient's FIRST caregiver: a second phone silently shared the first caregiver's account. Now a new caregiver is created and
+  joins the patient's care team (no second patient). With a JWT, that caregiver joins the device's patient.
+- `/api/devices/register` resets `patient_id` (unpairs). A paired terminal now gets codes from the new
+  `POST /api/device/pairing-code` (keeps the pairing), so a second caregiver can pair.
+- The terminal called a non-existent `/api/patients/me` after pairing; it now takes the language from `device:paired`.
+- The app's Indonesian term for the default name is "Caregiver" (not "Pendamping"): used for the empty-name chip.
+
+### Done
+- **Migration `009_care_team.sql` (applied to the dev DB):** `patient_caregivers` (patient_id, caregiver_id, paired_at; backfilled
+  with every patient's creator), `caregivers.name_safety_version` / `name_safety_verdict`.
+- Ownership: `services/ownership.js` `memberSql` / `onCareTeam` (creator OR team member) in `patientAccess`, routines, context
+  item :id routes, caregiver socket rooms and `join_patient`.
+- `services/careTeamService.js`: `addToCareTeam`, `caregiverSummary` → {name, count} (most recently paired caregiver; name only with
+  a current allow verdict, stale → background re-screen → `caregiver:updated`), `emitCaregiverUpdated` (patient room + every device
+  room), `emitForCaregiver`.
+- Payloads: `device:paired` {patient_id, language, caregiver_name, caregiver_count}; `GET /api/device/context` + caregiver_name,
+  caregiver_count; `caregiver:updated` {name, count} on pairing, name change, re-screen, and on terminal connect (unpaired → count 0).
+- Name gate: zod person name (letters any script, spaces . ' -, 2-40, typographic apostrophe → ', empty → null) then the content
+  safety gate, new kind `display_name` (treated like the spoken kinds; one new KIND_ROLE line: other kinds' prompts are unchanged,
+  so SAFETY_VERSION stays 3). 422 / 503 fail closed, nothing saved.
+- Terminal: `lib/connection.js` (state, `terminal_connection` cache, chip text), `Header.jsx` (swap layers, chip, inert hidden
+  layer, 250 ms cross-fade, reduced motion), `Home.jsx` (chip hold → popup + fresh code; any pairing closes the popup),
+  `App.jsx` (reconcile via GET /api/device/context, `device:paired`, `caregiver:updated`, pairing-code vs register),
+  `terminal.css` (.term-swap, .term-chip; compact: wordmark keeps its width, chip truncates, "+N" never truncates).
+- Portal: Settings name field (person-name check, hint, 422 → "This name can't be shown to the patient…", 503 → the safety
+  "couldn't verify" message, empty allowed), `components/NameSheet.jsx` ("What should we call you?", skippable) after a first
+  pairing when the caregiver has no name (`PortalApp` useAskName, Pair navigates with state {askName}).
+- `client/vite.config.js`: `esbuild: { jsx: 'automatic' }` so Vitest can render components (build unchanged).
+
+### Verification
+- `server`: `npm test` → 462 passed, 12 skipped (new `care-team-d.test.js`: second caregiver with/without login, first pairing,
+  member access, device:paired / context / caregiver:updated payloads, blocked/unscreened name hidden + re-screen, pairing-code
+  keeps the link, name validation, "Ada bom besok" as a name → 422 (audited without the text), 503 fail closed, save + emit,
+  clear name, email-only change not screened).
+- `client`: `npm test` → 134 passed (`connection.test.js`, `components/__tests__/headerStates.test.jsx`: unpaired, paired,
+  name change, +N, id strings, reload with cached state, unpaired again, chip has no tap action; long-press chip/logo independence
+  and early release; i18n keys en+id).
+- Layout (`npm run check:layout`, new `terminal-connected` state with a 38-char name and 3 caregivers): 0 horizontal scroll at
+  all 9 viewports incl. 360x740, 768x1024, 1194x834; the chip stays inside the viewport. Fixed on the way: at 360px the chip
+  pushed into the wordmark, and "+2" was truncated with the name.
+- **Not verified:** a real two-phone pairing against the running server, the name sheet in a browser, the tablet long press.
+
+---
+
 ## Known bugs / open items
 1. **Run `npm run db:seed`** and smoke-test the 3b endpoints (migrate 001–004 has now run against `DATABASE_URL`). (CLAUDE.md says
    `db:migrate`; the script is named `migrate`.)
@@ -1083,6 +1131,8 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 - The <10% fallback target at the configured budget needs a stable network (or a decision on FR-4.3.2 / the model).
 - Decide FR-4.3.2: keep the 2500 ms + 2 s ladder or restore 1.2 s (see Part B).
 - Decide: quota-aware retry (honour the 429 Retry-After) for the safety ensemble, or billing (see "A7").
+- Part D: try two phones pairing one tablet end to end; check the name sheet and the chip long press on a real tablet.
+- Part E: QR scanner on /portal/pair (in progress).
 - Tablet test of Parts A–C (lists under "Voice and routines"); restart `npm run dev` first so `/vad/` assets are served.
 - Delete spurious routine "missed" rows 50 and 51 if patients 7 / 13 are real (see Part C side effects).
 - Decide on STT latency (Gemini audio 1.4–2.5 s vs the 800 ms target): accept, or move to a streaming STT.

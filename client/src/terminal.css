@@ -72,8 +72,76 @@
   text-overflow: ellipsis;
 }
 
+/* Right side: the connect actions (not paired) and the "Connected" chip (paired) share one grid cell and cross-fade */
+.term-swap {
+  position: relative; /* anchors the popup when paired */
+  display: grid;
+  grid-template-columns: minmax(0, auto);
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+.term-swap-layer {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 250ms ease, visibility 0s linear 0s;
+}
+.term-swap-layer.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 250ms ease, visibility 0s linear 250ms; /* fade first, then leave the tab order */
+}
+@media (prefers-reduced-motion: reduce) {
+  .term-swap-layer, .term-swap-layer.is-hidden { transition: none; }
+}
+
+/* "Connected · {name}": state only (no tap action; a 3 s hold opens the connect popup) */
+.term-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 16px 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.18);
+  color: #ffffff;
+  font-size: clamp(14px, 1.7vw, 20px);
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: default;
+  /* long-press target, like the logo */
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.term-chip-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.3);
+}
+.term-chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-chip-more { flex: none; margin-left: -4px; white-space: nowrap; font-variant-numeric: tabular-nums; } /* "+2" never truncates */
+@media (min-width: 900px) and (orientation: landscape) {
+  .term-chip { max-width: min(440px, 42vw); }
+}
+/* Compact: the wordmark keeps its width; the chip takes what is left and truncates its name */
+@media (max-width: 899px), (orientation: portrait) {
+  .term-brand { flex: none; }
+  .term-chip { gap: 8px; padding: 0 12px 0 10px; }
+}
+
 /* Wide header buttons (Figma: Baloo Da 2 25px, divider between) */
-.term-actions { position: relative; display: none; margin-left: auto; align-items: center; gap: clamp(16px, 3vw, 38px); }
+.term-actions { position: relative; display: none; align-items: center; gap: clamp(16px, 3vw, 38px); }
 .term-action {
   position: relative;
   display: flex;
@@ -98,7 +166,6 @@
 
 /* Compact: one menu button */
 .term-menu-btn {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 6px;

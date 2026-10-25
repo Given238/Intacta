@@ -198,7 +198,7 @@ describe('POST /api/devices/register + /api/devices/pair', () => {
     expect(mockQuery.mock.calls[0][1]).toEqual([hashCode('ABCDEF')]);
     expect(io.joins).toContainEqual({ from: 'device:3', to: 'patient:5' });
     expect(io.emitted).toContainEqual(expect.objectContaining({
-      room: 'device:3', event: 'device:paired', data: { patient_id: 5, language: 'id' },
+      room: 'device:3', event: 'device:paired', data: { patient_id: 5, language: 'id', caregiver_name: null, caregiver_count: 0 },
     }));
     expect(io.emitted.map(e => `${e.room} ${e.event}`)).toEqual(expect.arrayContaining([
       'device:3 context:sync', 'device:3 settings:sync',
@@ -301,6 +301,8 @@ describe('GET /api/device/context', () => {
       },
       language: 'en',
       updated_at: expect.any(String),
+      caregiver_name: null,
+      caregiver_count: 0,
     });
     // daily items are limited to today
     expect(mockQuery.mock.calls.find(c => /context_items/.test(c[0]))[0]).toMatch(/context_date = CURRENT_DATE/);

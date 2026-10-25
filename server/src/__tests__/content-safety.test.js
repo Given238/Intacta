@@ -54,7 +54,7 @@ function routeQueries(routes) {
     return hit ? { rows: typeof hit[1] === 'function' ? hit[1](params) : hit[1] } : { rows: [] };
   });
 }
-const owns = (cg) => [/SELECT caregiver_id FROM patients WHERE id/, [{ caregiver_id: cg }]];
+const owns = (cg) => [/SELECT caregiver_id, .* FROM patients WHERE id/, [{ caregiver_id: cg }]];
 
 beforeEach(() => {
   mockQuery.mockReset();
@@ -286,7 +286,7 @@ describe('routines: title / audio_script / display_text are checked', () => {
     [{ title: 'Lunch', display_text: 'You will die tomorrow' }],
   ])('create %p → 422', async (fields) => {
     blockOnly(['Ada bom besok', 'You will die tomorrow']);
-    routeQueries([[/SELECT id, caregiver_id FROM patients/, [{ id: 5, caregiver_id: 1 }]]]);
+    routeQueries([[/SELECT id, caregiver_id, .* FROM patients/, [{ id: 5, caregiver_id: 1 }]]]);
     const res = makeRes();
     await routinesCtl.createRoutine({ caregiverId: 1, body: { patientId: 5, trigger_time: '12:30', category: 'meal', ...fields } }, res);
     expect(res.status).toHaveBeenCalledWith(422);
@@ -531,7 +531,7 @@ describe('fail closed: no verdict → refused, never allowed', () => {
 
     it('routine create and update', async () => {
       routeQueries([
-        [/SELECT id, caregiver_id FROM patients/, [{ id: 5, caregiver_id: 1 }]],
+        [/SELECT id, caregiver_id, .* FROM patients/, [{ id: 5, caregiver_id: 1 }]],
         [/FROM routines r/, [{ id: 1, trigger_time: '12:00:00', days: [0], caregiver_id: 1, title: 'Makan' }]],
       ]);
       const create = makeRes();

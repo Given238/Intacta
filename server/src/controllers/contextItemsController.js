@@ -5,7 +5,7 @@
  * down) → 503 {code:'safety_unavailable'} (fail closed). The verdict is stored with the row.
  */
 
-const { patientAccess, ACCESS_ERRORS } = require('../services/ownership');
+const { patientAccess, ACCESS_ERRORS, onCareTeam } = require('../services/ownership');
 const contextService = require('../services/contextService');
 const { logAudit } = require('../services/audit');
 const { screenOrRefuse } = require('../services/safetyGate');
@@ -17,12 +17,12 @@ async function loadOwnedItem(req, res) {
     res.status(400).json({ error: 'Validation failed', errors: [{ path: 'id', message: 'id must be a positive integer' }] });
     return null;
   }
-  const found = await contextService.findItemWithOwner(id);
+  const found = await contextService.findItemWithOwner(id, req.caregiverId);
   if (!found) {
     res.status(404).json({ error: 'Context item not found' });
     return null;
   }
-  if (found.caregiver_id !== req.caregiverId) {
+  if (!onCareTeam(found, req.caregiverId)) {
     res.status(403).json({ error: 'Access denied to this context item' });
     return null;
   }

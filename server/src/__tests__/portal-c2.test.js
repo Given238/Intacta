@@ -53,10 +53,15 @@ describe('GET/PUT /api/caregiver', () => {
   });
 
   it('updates only the given fields for the JWT caregiver and audits', async () => {
+    const safety = require('../services/contentSafety');
+    safety.setClassifier(async () => require('./safetyTestUtils').ALLOW); // the name is screened (kind display_name)
     mockQuery.mockResolvedValue({ rows: [{ id: 7, name: 'Tim', email: 'tim@example.com' }] });
     const res = mockRes();
     await caregiverCtl.putMe({ caregiverId: 7, body: { name: 'Tim' } }, res);
-    expect(mockQuery).toHaveBeenCalledWith(expect.stringMatching(/SET name = \$1 WHERE id = \$2/), ['Tim', 7]);
+    safety.setClassifier(undefined);
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringMatching(/SET name = \$1, name_safety_version = \$2, name_safety_verdict = \$3 WHERE id = \$4/),
+      ['Tim', safety.SAFETY_VERSION, 'allow', 7]);
     expect(res.body.caregiver.name).toBe('Tim');
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ caregiverId: 7, action: 'caregiver.update' }));
   });
@@ -73,7 +78,8 @@ describe('GET/PUT /api/caregiver', () => {
   it('validates the body', () => {
     expect(updateCaregiverSchema.safeParse({}).success).toBe(false);
     expect(updateCaregiverSchema.safeParse({ email: 'not-an-email' }).success).toBe(false);
-    expect(updateCaregiverSchema.safeParse({ name: '  ' }).success).toBe(false);
+    expect(updateCaregiverSchema.safeParse({ name: '  ' }).data.name).toBeNull(); // empty → "Caregiver" on the tablet
+    expect(updateCaregiverSchema.safeParse({ name: 'T' }).success).toBe(false);
     expect(updateCaregiverSchema.safeParse({ name: 'Tim', email: 'TIM@Example.com' }).data.email).toBe('tim@example.com');
   });
 });

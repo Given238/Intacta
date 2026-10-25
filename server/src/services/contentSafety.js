@@ -2,7 +2,7 @@
  * contentSafety.js — is this text safe to reach a person with dementia?
  *
  * checkPatientFacingText(text, {language, kind}) → Promise<{ok, category, reason, sensitive, score}>
- *   kind: context | broadcast | routine | voice_test | reply
+ *   kind: context | broadcast | routine | voice_test | reply | display_name
  *   Throws SafetyUnavailableError (code 'safety_unavailable') when no verdict can be obtained: FAIL CLOSED.
  *
  * The ONLY decision-maker is a Gemini classifier (temperature 0, structured JSON, GEMINI_SAFETY_MODEL) that judges
@@ -18,8 +18,9 @@
 const crypto = require('crypto');
 const { z } = require('zod');
 
-const KINDS = ['context', 'broadcast', 'routine', 'voice_test', 'reply'];
-const SPOKEN_KINDS = ['broadcast', 'routine', 'voice_test', 'reply'];
+const KINDS = ['context', 'broadcast', 'routine', 'voice_test', 'reply', 'display_name'];
+// Said aloud or shown to the patient word for word (display_name: the caregiver's name on the terminal screen)
+const SPOKEN_KINDS = ['broadcast', 'routine', 'voice_test', 'reply', 'display_name'];
 const CATEGORIES = [
   'threat_or_harm', 'death_or_harm_prediction', 'fear_inducing', 'abandonment_or_shaming', 'abuse_or_insult',
   'sexual', 'harmful_instruction', 'sensitive_fact', 'other', 'none',
@@ -62,6 +63,7 @@ const KIND_ROLE = {
   routine:    'kind=routine: a reminder read aloud word for word to the person at a set time of day.',
   voice_test: 'kind=voice_test: a test sentence read aloud to the person.',
   reply:      'kind=reply: a reply the assistant is about to say to the person.',
+  display_name: 'kind=display_name: a caregiver\'s own name or nickname, shown on the person\'s screen as "Connected · {name}". Allow real names and kind nicknames in any language; block anything else that would worry, insult or confuse the person when read as a name.',
 };
 
 // Each judge looks at the text from a different seat; both apply the same rubric.

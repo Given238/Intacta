@@ -36,8 +36,20 @@ const putSettingsSchema = z.object({
 );
 
 // ── Caregiver profile ────────────────────────────────────────────────────────
+// The name is shown to the patient ("Connected · {name}"): a person name only. Letters (any script, with accents),
+// spaces and . ' - ; 2-40 characters. Typographic apostrophes become '. Empty → null (shown as "Caregiver").
+const PERSON_NAME = /^[\p{L}\p{M}](?:[\p{L}\p{M} .'-]*[\p{L}\p{M}.])?$/u;
+const personNameField = z.preprocess(
+  (v) => (typeof v === 'string' ? v.normalize('NFC').replace(/[‘’ʼ]/g, "'").replace(/\s+/g, ' ').trim() : v),
+  z.string().nullable().superRefine((v, ctx) => {
+    if (!v) return;
+    if (v.length < 2 || v.length > 40) ctx.addIssue({ code: 'custom', message: 'name must be 2 to 40 characters' });
+    else if (!PERSON_NAME.test(v)) ctx.addIssue({ code: 'custom', message: "name may only contain letters, spaces and . ' -" });
+  }).transform((v) => v || null),
+);
+
 const updateCaregiverSchema = z.object({
-  name:  z.string().trim().min(1).max(100).nullable().optional(),
+  name:  personNameField.optional(),
   email: z.string().trim().toLowerCase().email({ message: 'email must be a valid address' }).max(255).nullable().optional(),
 }).refine((b) => Object.keys(b).length > 0, { message: 'name or email is required' });
 
@@ -130,6 +142,7 @@ module.exports = {
   updateContextItemSchema,
   putSettingsSchema,
   updateCaregiverSchema,
+  personNameField,
   patientQuerySchema,
   contextItemsQuerySchema,
   interactionsQuerySchema,

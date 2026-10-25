@@ -18,6 +18,8 @@ export default defineConfig(({ mode }) => {
   const target = loadEnv(mode, process.cwd(), '').VITE_PROXY_TARGET || 'http://localhost:3000'
   return {
     plugins: [react(), tailwindcss(), vadAssets],
+    // Vitest 3 transforms with esbuild: use the automatic JSX runtime like the app build (component tests)
+    esbuild: { jsx: 'automatic' },
     server: {
       proxy: {
         '/api': {

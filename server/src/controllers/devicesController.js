@@ -4,6 +4,9 @@
  * Step 1 (terminal):  POST /api/devices/register  { device_id, code }
  *   Generates a 6-char pairing code, TTL 10 min, single use.
  *
+ * Paired terminal:   POST /api/device/pairing-code (x-device-token) → a new code, the pairing is kept
+ *   (another caregiver joins the same patient).
+ *
  * Step 2 (caregiver): POST /api/devices/pair  { code }   — public, no login
  *   Rate-limited 5/min per IP. Optional caregiver JWT ("Pair New Tablet").
  *   Returns a caregiver JWT scoped to the paired patient + {patient_id, language, device_name}.
@@ -16,6 +19,7 @@ const { loadContextSnapshot, buildContextSync, terminalContext } = require('../s
 const { getSettings, buildSettingsSync } = require('../services/settingsService');
 const { pairWithCode, hashCode, PairingError } = require('../services/pairingService');
 const { logAudit } = require('../services/audit');
+const { caregiverSummary, emitCaregiverUpdated } = require('../services/careTeamService');
 
 const CODE_CHARS    = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I, O, 0, 1 — avoids confusion
 const CODE_LENGTH   = 6;
@@ -127,11 +131,11 @@ async function pairDevice(req, res) {
     return res.status(500).json({ error: 'Pairing failed', code: 'pair_failed' });
   }
 
-  const { caregiverId, patientId, language, deviceId, deviceName, createdPatient } = paired;
+  const { caregiverId, patientId, language, deviceId, deviceName, createdPatient, joinedExisting } = paired;
   await logAudit({
     caregiverId,
     action:  'device.pair',
-    payload: { device_id: deviceId, patient_id: patientId, created_patient: createdPatient },
+    payload: { device_id: deviceId, patient_id: patientId, created_patient: createdPatient, joined_existing: joinedExisting },
   });
 
   // Move the connected terminal into the patient room, then notify it.
@@ -141,7 +145,12 @@ async function pairDevice(req, res) {
     try {
       const deviceRoom = `device:${deviceId}`;
       io.in(deviceRoom).socketsJoin(`patient:${patientId}`);
-      io.to(deviceRoom).emit('device:paired', { patient_id: patientId, language });
+      const team = await caregiverSummary(patientId);
+      io.to(deviceRoom).emit('device:paired', {
+        patient_id: patientId, language, caregiver_name: team.name, caregiver_count: team.count,
+      });
+      // Other terminals of this patient and the other caregivers' portals see the new team
+      await emitCaregiverUpdated(io, patientId);
       const [contextSync, settingsSync] = await Promise.all([
         buildContextSync(patientId),
         buildSettingsSync(patientId),
@@ -169,13 +178,33 @@ async function pairDevice(req, res) {
   });
 }
 
+// ── Paired terminal: a fresh code so ANOTHER caregiver can pair (long press on the "Connected" chip) ──
+// Unlike /register this keeps the device token and the patient link.
+async function requestPairingCode(req, res) {
+  try {
+    const code      = generateCode();
+    const expiresAt = new Date(Date.now() + CODE_TTL_MS);
+    await query(
+      'UPDATE devices SET pairing_code = $1, code_expires_at = $2, code_used_at = NULL WHERE id = $3',
+      [hashCode(code), expiresAt, req.deviceId]
+    );
+    return res.json({ code, expires_at: expiresAt.toISOString() });
+  } catch (err) {
+    console.error('requestPairingCode error:', err.code || err.name, err.message);
+    if (isDbUnavailable(err)) {
+      return res.status(503).json({ error: 'Database unavailable', code: 'db_unavailable' });
+    }
+    return res.status(500).json({ error: 'Failed to create a pairing code', code: 'code_failed' });
+  }
+}
+
 // ── Terminal reads (x-device-token): context snapshot and settings ────────────
 async function getDeviceContext(req, res) {
   try {
-    const snapshot = await loadContextSnapshot(req.patientId);
+    const [snapshot, team] = await Promise.all([loadContextSnapshot(req.patientId), caregiverSummary(req.patientId)]);
     if (!snapshot) return res.status(404).json({ error: 'Patient not found' });
     const { language, updated_at, ...context } = terminalContext(snapshot);
-    return res.json({ context, language, updated_at });
+    return res.json({ context, language, updated_at, caregiver_name: team.name, caregiver_count: team.count });
   } catch (err) {
     console.error('getDeviceContext error:', err.message);
     return res.status(500).json({ error: 'Failed to load context' });
@@ -193,4 +222,4 @@ async function getDeviceSettings(req, res) {
   }
 }
 
-module.exports = { registerDevice, pairDevice, getDeviceContext, getDeviceSettings };
+module.exports = { registerDevice, pairDevice, requestPairingCode, getDeviceContext, getDeviceSettings };

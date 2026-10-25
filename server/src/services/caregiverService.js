@@ -18,11 +18,20 @@ async function getProfile(caregiverId) {
   return result.rows[0] || null;
 }
 
-/** Only the fields present in `changes` are written. Throws CaregiverError 409 when the email belongs to someone else. */
+/**
+ * Only the fields present in `changes` are written. A name is saved with its safety verdict (changes.nameVerdict,
+ * from the gate); a cleared name clears the verdict. Throws CaregiverError 409 when the email belongs to someone else.
+ */
 async function updateProfile(caregiverId, changes) {
-  const fields = ['name', 'email'].filter(f => Object.prototype.hasOwnProperty.call(changes, f));
+  const values = {};
+  for (const f of ['name', 'email']) if (Object.prototype.hasOwnProperty.call(changes, f)) values[f] = changes[f];
+  if ('name' in values) {
+    values.name_safety_version = values.name ? changes.nameVerdict?.safety_version ?? null : null;
+    values.name_safety_verdict = values.name ? changes.nameVerdict?.safety_verdict ?? null : null;
+  }
+  const fields = Object.keys(values);
   const sets   = fields.map((f, i) => `${f} = $${i + 1}`);
-  const params = [...fields.map(f => changes[f]), caregiverId];
+  const params = [...fields.map(f => values[f]), caregiverId];
   try {
     const result = await query(
       `UPDATE caregivers SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING id, name, email`,
