@@ -1,7 +1,8 @@
 /**
  * portalApi — caregiver portal → server REST calls.
  */
-import { getSession, clearSession } from './session'
+import { getSession } from './session'
+import { sessionEnded } from './logout'
 
 const API = import.meta.env.VITE_API_URL || ''
 
@@ -15,14 +16,12 @@ export class PortalApiError extends Error {
 
 /**
  * Caregiver-authenticated request with the stored JWT.
- * A 401 (missing, expired or bad token) clears the session and sends the caregiver back to pairing.
+ * A 401 (expired, revoked by a logout, or bad token) clears the session and sends the caregiver back to pairing with
+ * "You've been logged out" (sessionEnded). No stored session (just logged out) → the call fails quietly.
  */
 export async function portalFetch(path, { headers, ...options } = {}) {
   const session = getSession()
-  if (!session) {
-    redirectToPair()
-    throw new PortalApiError('not paired', { status: 401, code: 'unauthorized' })
-  }
+  if (!session) throw new PortalApiError('not paired', { status: 401, code: 'unauthorized' })
 
   let res
   try {
@@ -35,7 +34,7 @@ export async function portalFetch(path, { headers, ...options } = {}) {
   }
 
   if (res.status === 401) {
-    redirectToPair()
+    sessionEnded()
     throw new PortalApiError('401 unauthorized', { status: 401, code: 'unauthorized' })
   }
   if (!res.ok) {
@@ -54,10 +53,7 @@ export async function portalFetch(path, { headers, ...options } = {}) {
  */
 export async function portalFetchBlob(path) {
   const session = getSession()
-  if (!session) {
-    redirectToPair()
-    throw new PortalApiError('not paired', { status: 401, code: 'unauthorized' })
-  }
+  if (!session) throw new PortalApiError('not paired', { status: 401, code: 'unauthorized' })
   let res
   try {
     res = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${session.token}` } })
@@ -65,7 +61,7 @@ export async function portalFetchBlob(path) {
     throw new PortalApiError(`network (${netErr.message})`, { code: 'network' })
   }
   if (res.status === 401) {
-    redirectToPair()
+    sessionEnded()
     throw new PortalApiError('401 unauthorized', { status: 401, code: 'unauthorized' })
   }
   if (res.status === 404 || res.status === 410) {
@@ -73,11 +69,6 @@ export async function portalFetchBlob(path) {
   }
   if (!res.ok) throw new PortalApiError(`${res.status} ${res.statusText}`, { status: res.status })
   return res.blob()
-}
-
-function redirectToPair() {
-  clearSession()
-  window.location.replace('/portal/pair')
 }
 
 /*

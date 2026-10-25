@@ -5,6 +5,7 @@
  *   subtitle, divider (#54aed3), "Enter code:", code box (#234053), Confirm (#0e5f80).
  *   Below them (not in Figma): "or" + "Scan QR code" (camera) → QrScannerSheet (lazy-loaded with its decoder).
  *   A scanned code fills the field, shows "Code detected, connecting..." and goes through the same pair call and errors.
+ *   After a logout (or a revoked / expired session) a calm notice sits above the card, shown once.
  *   Figma sizes are a reference; text uses the portal type scale.
  */
 import { lazy, Suspense, useEffect, useState } from 'react'
@@ -18,6 +19,7 @@ import dividerSvg   from '../../assets/portal-divider.svg'
 import { pairWithCode } from '../portalApi'
 import { getSession, setSession, clearSession } from '../session'
 import { CODE_LENGTH, toRawCode, takeCodeParam } from '../pairCode'
+import { takeNotice } from '../logout'
 
 // The scanner (and its QR decoder) loads only when the caregiver opens it
 const QrScannerSheet = lazy(() => import('../components/QrScannerSheet'))
@@ -47,6 +49,7 @@ export default function Pair() {
   const [error,   setError]   = useState(null)
   const [scanning, setScanning] = useState(false)
   const [detected, setDetected] = useState(false) // "Code detected, connecting..."
+  const [notice] = useState(takeNotice) // 'logged_out' | 'logged_out_offline' | null
 
   // Clear ?code= from the address bar once read
   useEffect(() => {
@@ -140,6 +143,12 @@ export default function Pair() {
           )}
 
           <h1 className="text-title mt-2 text-white">{t('portal.pair.title')}</h1>
+
+          {notice && (
+            <p role="status" className="text-body mt-4 rounded-card bg-intacta-panel px-4 py-3 text-white">
+              {t(notice === 'logged_out_offline' ? 'portal.pair.loggedOutOffline' : 'portal.pair.loggedOut')}
+            </p>
+          )}
 
           <form
             onSubmit={handleSubmit}

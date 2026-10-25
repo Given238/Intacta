@@ -20,7 +20,8 @@ import onlineDot     from '../../assets/icons/status-dot-online.svg'
 import i18n from '../../i18n'
 import { goToModeChooser } from '../../lib/startMode'
 import { portalFetch, portalFetchBlob } from '../portalApi'
-import { getSession, clearSession } from '../session'
+import { getSession } from '../session'
+import { logOut } from '../logout'
 import { checkName, saveCaregiverName, nameErrorKey } from '../caregiverName'
 import { usePortalLoad, sessionPatientId } from '../usePortalLoad'
 import { usePortalSocket, emitWithAck } from '../usePortalSocket'
@@ -52,6 +53,7 @@ export default function Settings() {
   const [saveState, setSaveState] = useState({})      // card → 'saving' | 'saved'
   const [confirmStrictOff, setConfirmStrictOff] = useState(false)
   const [confirmLogout,    setConfirmLogout]    = useState(false)
+  const [loggingOut,       setLoggingOut]       = useState(false)
   const savedTimers = useRef({})
 
   const showToast = useCallback((message) => {
@@ -123,10 +125,14 @@ export default function Settings() {
     saveSettings('rules', { strict_validation: true }, previous)
   }
 
-  const logout = () => {
-    clearSession()
+  // Server logout (revokes this session, leaves the care team), then local; offline → local + notice + one retry later
+  const logout = async () => {
+    if (loggingOut) return
+    setLoggingOut(true)
+    await logOut({ socket })
     navigate('/portal/pair', { replace: true })
   }
+  const closeLogout = () => { if (!loggingOut) setConfirmLogout(false) }
 
   return (
     <div className="text-white">
@@ -196,10 +202,13 @@ export default function Settings() {
       {confirmLogout && (
         <Dialog
           title={t('portal.settings.account.logoutTitle')}
-          onClose={() => setConfirmLogout(false)}
+          onClose={closeLogout}
           footer={<>
-            <DialogButton variant="ghost" onClick={() => setConfirmLogout(false)}>{t('portal.common.cancel')}</DialogButton>
-            <DialogButton variant="danger" onClick={logout}>{t('portal.settings.account.logout')}</DialogButton>
+            <DialogButton variant="ghost" onClick={closeLogout} disabled={loggingOut}>{t('portal.common.cancel')}</DialogButton>
+            <DialogButton variant="danger" onClick={logout} disabled={loggingOut} aria-busy={loggingOut}>
+              {loggingOut && <Loader2 size={18} className="animate-spin" aria-hidden="true" />}
+              {t(loggingOut ? 'portal.settings.account.loggingOut' : 'portal.settings.account.logout')}
+            </DialogButton>
           </>}
         >
           <p className="text-body">{t('portal.settings.account.logoutBody')}</p>

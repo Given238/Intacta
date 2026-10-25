@@ -58,6 +58,12 @@ export default function Home({
   }, [pairingCode])
   // Every pairing (also a second caregiver joining) closes it, even when no code had been shown yet
   useEffect(() => { if (pairedTick) setShowPopup(false) }, [pairedTick])
+  // The last caregiver logged out (Connected → buttons): close the popup opened for the old connection
+  const wasPaired = useRef(!!connection?.paired)
+  useEffect(() => {
+    if (wasPaired.current && !connection?.paired) setShowPopup(false)
+    wasPaired.current = !!connection?.paired
+  }, [connection?.paired])
 
   // Paired: holding the "Connected" chip 3 s opens the same popup with a fresh code (another caregiver can pair)
   const onRequestCodeRef = useRef(onRequestCode)

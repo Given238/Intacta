@@ -127,7 +127,22 @@ ALL patient-facing LLM output:
 4. Care team (migration 009): access to a patient = `patients.caregiver_id` (creator) OR a `patient_caregivers` row
    (`services/ownership.js` memberSql/onCareTeam; used by every ownership check). A paired terminal gets a fresh code WITHOUT
    unpairing via `POST /api/device/pairing-code` (x-device-token); `/api/devices/register` resets the pairing (unpaired terminals only).
-Logic lives in `server/src/services/pairingService.js` and `services/careTeamService.js`.
+5. Logout (migration 010) = revoke the session + leave the care team. Every caregiver JWT carries a `jti` with a
+   `caregiver_sessions` row (pairing: scoped to the patient; email login: patient NULL = all its patients). REST auth and the
+   socket handshake refuse a revoked session (401 / connect_error `data.code` `session_revoked`; cached check; DB down → 503
+   `auth_unavailable`, never 401). Pre-010 tokens (no jti) stay valid until they expire; logout denylists them as
+   `legacy:<sha256>`. `POST /api/auth/logout` (signed token, may be expired/revoked; idempotent 200; 10/min/IP): revoke →
+   the caregiver leaves (`patient_caregivers.left_at`) every team in scope where they have no other active session →
+   `session:revoked` + disconnect of the session's sockets (room `session:{jti}`) → `caregiver:updated` → audit
+   `caregiver.logout` {caregiver_id, patient_id, session}. Nothing else is deleted (patient, notes, routines, history stay).
+   Left members do not count, are not shown and fail the care-team check (the creator keeps `patients.caregiver_id`).
+   Stale job (`services/logoutService.js`, hourly + once at start-up, passes never overlap): a member leaves when no active
+   session covers the patient AND (a session row exists for it OR paired_at is older than one token lifetime, for pre-010
+   tokens). Rejoin: pairing again (a new code from the tablet) clears left_at; without a JWT it is a NEW caregiver on the SAME
+   patient. The terminal asks `POST /api/device/pairing-code` whenever it has a device token (keeps the patient) and registers
+   only on 401 (no patient).
+Logic lives in `server/src/services/pairingService.js`, `services/careTeamService.js`, `services/sessionService.js` and
+`services/logoutService.js`.
 Known limitation (state it in the pitch): code-only caregiver auth is a hackathon simplification; production adds caregiver login.
 
 ## Routes, start menu and modes (UX)
@@ -152,6 +167,15 @@ Known limitation (state it in the pitch): code-only caregiver auth is a hackatho
   reconciles (GET /api/device/context; 401 → unpaired), `device:paired` and `caregiver:updated` (count 0 = unpaired → buttons return).
   Any pairing closes the popup. Holding the chip 3 s (touch/mouse, early release cancels, a tap does nothing; its own timer, separate
   from the logo's) opens the same "Connect a caregiver" popup with a fresh code (`/api/device/pairing-code`).
+- Header state = the server's ACTIVE care team only: `caregiver:updated` count 0 (everyone logged out) → the buttons
+  cross-fade back, the popup closes, the cached `terminal_connection` is cleared and the next press asks for a fresh code.
+  A reload paints the cache, then GET /api/device/context (caregiver_count 0 → buttons) replaces it.
+- Portal Log Out (Settings → Account & Security, `portal/logout.js`): confirm "Log out? To connect again you'll need a new code
+  from the tablet." → spinner → `POST /api/auth/logout` → clear `portal_session` (the start-menu mode stays), close the socket →
+  /portal/pair. Offline/failed: logged out on the phone anyway + notice "You're logged out on this phone, but the tablet may
+  still show you as connected…", the old token kept ONLY for one automatic retry when the network returns
+  (`portal_logout_retry`, then dropped). A 401 / socket `session_revoked` / `invalid_token` anywhere → /portal/pair once with
+  "You've been logged out" (sessionStorage `portal_notice`; never redirects from /portal/pair: no loop).
 - Portal caregiver name: Settings → Account & Security (Name), and after a first pairing (Pair navigates with state {askName}) a
   skippable sheet "What should we call you?" when the caregiver has no name (`portal/components/NameSheet.jsx`). Both save through
   PUT /api/caregiver (`portal/caregiverName.js`); blocked → "This name can't be shown to the patient…".
@@ -170,14 +194,18 @@ Known limitation (state it in the pitch): code-only caregiver auth is a hackatho
 - caregiver → server: `voice:test` {patientId} → terminal `voice:test` {text, language, voice_gender, playback_speed, volume_db}; ack {success}
 - server → terminal: `device:paired` {patient_id, language, caregiver_name (most recently paired; null if unset/unscreened), caregiver_count}
 - server → terminal + portal: `caregiver:updated` {name, count} to `patient:{id}` and every `device:{id}` of the patient: after any
-  pairing, a caregiver name change (all teams of that caregiver), a name passing its background re-screen, and to a terminal on
-  connect ({name:null, count:0} when it is not paired).
+  pairing, a caregiver name change (all teams of that caregiver), a name passing its background re-screen, a logout, a stale
+  membership cleanup, and to a terminal on connect ({name:null, count:0} when it is not paired). name/count = ACTIVE members only.
+- server → caregiver socket: `session:revoked` {reason:'logout'} right before the server disconnects every socket of that session
 - terminal → server: `device:status` {online, battery 0-100, power} → portal `device:status` {device_id, online, battery, power}
 Rooms: `device:{id}` (terminal, from connect) and `patient:{id}`. JWT on caregiver sockets (`auth.token`);
 device_token on terminal sockets (`auth.device_token`, unpaired devices may connect). Caregiver events check patient ownership.
+Caregiver sockets also join `session:{jti}` (logout disconnects that room); a revoked/invalid JWT → connect_error `data.code`.
 
 ## REST Contract (keep in sync)
-Caregiver JWT (`Authorization: Bearer`), ownership checked on every route (404 unknown patient, 403 another caregiver's):
+Caregiver JWT (`Authorization: Bearer`), ownership checked on every route (404 unknown patient, 403 another caregiver's);
+401 `{code: invalid_token | session_revoked}`, 503 `auth_unavailable` when the revocation check can't run:
+- `POST /api/auth/logout` → 200 {success, already_logged_out, left_patients}; 401 only for a missing/forged token; 429 `rate_limited`.
 - `GET /api/context-items?patientId&scope=daily|permanent` → {items} (daily = today only) · `POST` {patientId, scope, text} → 201
   · `PUT /:id` {text} · `DELETE /:id` → 204. Mutations audit + emit `context:sync`.
 - `GET /api/settings?patientId` → {settings} (defaults if unset) · `PUT` {patientId, ...any setting} → audit + `settings:sync`.
@@ -277,7 +305,10 @@ Always: get_design_context + get_screenshot for the node before building. Clip e
 ## Database Schema Keys
 - `caregivers` (email + password_hash nullable since migration 004: code-paired caregivers have no login; name_safety_version,
   name_safety_verdict since 009), `patients` (language: id|en; caregiver_id = creator)
-- `patient_caregivers` (009): patient_id, caregiver_id, paired_at (PK patient+caregiver): the care team; backfilled with every creator
+- `patient_caregivers` (009): patient_id, caregiver_id, paired_at (PK patient+caregiver), left_at (010; NULL = active): the care
+  team; backfilled with every creator
+- `caregiver_sessions` (010): id (jti, or `legacy:<sha256 of token>` denylist rows), caregiver_id, patient_id (NULL = login),
+  created_at, expires_at, revoked_at
 - `devices`: id, device_uid, name (e.g. "Tablet - Ruang Tamu"), patient_id, token_hash, pairing_code (SHA-256), code_expires_at, code_used_at, last_seen_at, battery, is_online
 - `context_items`: id, patient_id, scope (daily|permanent), text (≤200), context_date (NULL for permanent), created_at, blocked_category
   (`daily_contexts` is legacy: migration 003 copies today's rows over; no code reads it)

@@ -2,10 +2,13 @@
  * usePortalSocket — caregiver Socket.IO connection (JWT handshake, auth.token).
  * The server joins the socket to the caregiver's patient rooms on connect, so
  * device:status / interaction:new arrive without an explicit join.
+ * A revoked / expired session (connect_error data.code, or `session:revoked` before the server disconnects us)
+ * ends the portal session: back to /portal/pair with "You've been logged out".
  */
 import { useEffect, useState } from 'react'
 import { io } from 'socket.io-client'
 import { getSession } from './session'
+import { sessionEnded, isSessionError } from './logout'
 
 const API = import.meta.env.VITE_API_URL || ''
 
@@ -23,15 +26,25 @@ export function usePortalSocket() {
     if (!socket) return
     const onConnect    = () => setConnected(true)
     const onDisconnect = () => setConnected(false)
-    const onError      = (err) => console.error('portal socket:', err.message)
+    const onError      = (err) => {
+      if (isSessionError(err)) {
+        socket.disconnect() // no reconnect loop with a dead token
+        sessionEnded()
+        return
+      }
+      console.error('portal socket:', err.message)
+    }
+    const onRevoked = () => { socket.disconnect(); sessionEnded() }
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('connect_error', onError)
+    socket.on('session:revoked', onRevoked)
     socket.connect()
     return () => {
       socket.off('connect', onConnect)
       socket.off('disconnect', onDisconnect)
       socket.off('connect_error', onError)
+      socket.off('session:revoked', onRevoked)
       socket.disconnect()
     }
   }, [socket])

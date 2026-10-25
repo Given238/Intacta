@@ -3,7 +3,8 @@
  * terminal shows about them ("Connected · {name}", "{first name} +N").
  *
  * caregiverSummary(patientId) → {name, count}: name = the most recently paired caregiver's name, or null when it
- * is unset, blocked or not yet screened (the terminal then shows "Caregiver"); count = team size.
+ * is unset, blocked or not yet screened (the terminal then shows "Caregiver"); count = active team size (members who
+ * logged out or whose sessions all expired have left_at set and do not count, migration 010).
  * The name is patient-facing text: it is shown only with a stored safety verdict (kind display_name) of the current
  * SAFETY_VERSION. A stale one is re-screened in the background and caregiver:updated goes out when it is done.
  */
@@ -11,11 +12,11 @@
 const { query } = require('../db/query');
 const { checkPatientFacingText, storedVerdict, SAFETY_VERSION } = require('./contentSafety');
 
-/** Joins (or re-joins) the team; paired_at moves to now, so this caregiver becomes the one shown. */
+/** Joins (or re-joins after leaving) the team; paired_at moves to now, so this caregiver becomes the one shown. */
 async function addToCareTeam(patientId, caregiverId) {
   await query(
     `INSERT INTO patient_caregivers (patient_id, caregiver_id, paired_at) VALUES ($1, $2, NOW())
-     ON CONFLICT (patient_id, caregiver_id) DO UPDATE SET paired_at = NOW()`,
+     ON CONFLICT (patient_id, caregiver_id) DO UPDATE SET paired_at = NOW(), left_at = NULL`,
     [patientId, caregiverId]
   );
 }
@@ -54,7 +55,7 @@ async function caregiverSummary(patientId) {
   const result = await query(
     `SELECT c.id, c.name, c.name_safety_version, c.name_safety_verdict
      FROM patient_caregivers pc JOIN caregivers c ON c.id = pc.caregiver_id
-     WHERE pc.patient_id = $1
+     WHERE pc.patient_id = $1 AND pc.left_at IS NULL
      ORDER BY pc.paired_at DESC, c.id DESC`,
     [patientId]
   );
@@ -63,11 +64,11 @@ async function caregiverSummary(patientId) {
   return { name: nameIsUsable(latest) ? latest.name : null, count: result.rows.length };
 }
 
-/** Patients the caregiver created or joined. */
+/** Patients the caregiver created or is on the team of (left teams excluded). */
 async function patientsOfCaregiver(caregiverId) {
   const result = await query(
     `SELECT id FROM patients WHERE caregiver_id = $1
-     UNION SELECT patient_id AS id FROM patient_caregivers WHERE caregiver_id = $1`,
+     UNION SELECT patient_id AS id FROM patient_caregivers WHERE caregiver_id = $1 AND left_at IS NULL`,
     [caregiverId]
   );
   return result.rows.map(r => r.id);

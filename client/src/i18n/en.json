@@ -80,7 +80,9 @@
       "subtitleLink": "link another tablet",
       "or": "or",
       "scan": "Scan QR code",
-      "detected": "Code detected, connecting..."
+      "detected": "Code detected, connecting...",
+      "loggedOut": "You've been logged out. Enter a new code from the tablet to connect again.",
+      "loggedOutOffline": "You're logged out on this phone, but the tablet may still show you as connected. It will update when you're back online."
     },
     "scan": {
       "title": "Scan QR code",
@@ -312,7 +314,8 @@
         "email": "Email:",
         "logout": "Log Out",
         "logoutTitle": "Log out?",
-        "logoutBody": "To sign in again you'll need a new code from the tablet (Enable caregiver connection).",
+        "logoutBody": "To connect again you'll need a new code from the tablet.",
+        "loggingOut": "Logging out…",
         "deviceMode": "Device mode",
         "changeMode": "Change mode",
         "nameHint": "The tablet shows \"Connected · your name\". Leave it empty to show \"Caregiver\".",

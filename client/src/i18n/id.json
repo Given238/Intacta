@@ -80,7 +80,9 @@
       "subtitleLink": "hubungkan tablet lain",
       "or": "atau",
       "scan": "Pindai kode QR",
-      "detected": "Kode terdeteksi, menghubungkan..."
+      "detected": "Kode terdeteksi, menghubungkan...",
+      "loggedOut": "Anda telah keluar. Masukkan kode baru dari tablet untuk terhubung lagi.",
+      "loggedOutOffline": "Anda sudah keluar di ponsel ini, tetapi tablet mungkin masih menampilkan Anda sebagai terhubung. Tablet akan diperbarui saat Anda kembali online."
     },
     "scan": {
       "title": "Pindai kode QR",
@@ -312,7 +314,8 @@
         "email": "Email:",
         "logout": "Keluar",
         "logoutTitle": "Keluar?",
-        "logoutBody": "Untuk masuk lagi Anda memerlukan kode baru dari tablet (Aktifkan koneksi caregiver).",
+        "logoutBody": "Untuk terhubung lagi, Anda memerlukan kode baru dari tablet.",
+        "loggingOut": "Sedang keluar…",
         "deviceMode": "Mode perangkat",
         "changeMode": "Ganti mode",
         "nameHint": "Tablet menampilkan \"Terhubung · nama Anda\". Kosongkan untuk menampilkan \"Caregiver\".",

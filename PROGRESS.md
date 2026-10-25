@@ -1,7 +1,7 @@
 # Intacta — Progress Status
 
 Last updated: 2026-10-25
-Branch: `phase-7-safety-replies-layout` (local commits only; see "Content safety gate fix")
+Branch: `phase-7-logout` (Part F: logout), merged into `main` by `scripts/safe-push.mjs`
 
 ---
 
@@ -1098,6 +1098,70 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 
 ---
 
+## Part F: Log Out revokes the session and leaves the care team (2026-10-25, branch `phase-7-logout`)
+
+### Inspection (before the change)
+- **Log Out button** (`portal/pages/Settings.jsx`): confirm dialog, then `clearSession()` + navigate to `/portal/pair`. No
+  server call: the JWT stayed valid (24 h) and the caregiver stayed in `patient_caregivers`, so the tablet kept
+  "Connected · {name}".
+- **Care team** (migration 009): `patient_caregivers` (patient_id, caregiver_id, paired_at), with every creator backfilled. Access =
+  `patients.caregiver_id` OR a team row (`ownership.memberSql`). No column for leaving.
+- **Chip data**: `careTeamService.caregiverSummary` → {name of the most recently paired member (with a current allow verdict),
+  count = team rows}; sent in `device:paired`, `GET /api/device/context` (caregiver_name/count) and `caregiver:updated` (pairing,
+  name change, re-screen, terminal connect). Terminal: `lib/connection.js` `fromServer`; the reload reconcile forced
+  `paired: true` whenever the device had a patient, so count 0 could never show the buttons after a reload.
+- **JWTs**: `jwt.sign({caregiverId, patientId}, JWT_SECRET, {expiresIn: JWT_EXPIRES_IN || '24h'})` in `pairDevice`; email login
+  signs `{caregiverId}` only. No jti, no server-side state, so nothing could be revoked. Pairing with no header on a device
+  that has a patient creates a NEW caregiver on that patient; on an unpaired device it creates caregiver + patient; with a JWT
+  that caregiver joins (Part D).
+- **Sockets**: one handshake middleware: a caregiver JWT (`auth.token`, signature only) → joins every `patient:{id}` it can
+  access; otherwise a device token → `device:{id}` (+ `patient:{id}` when paired). A bad JWT fell through to the device-token path.
+- **Re-pairing after logout (bug found)**: with count 0 the terminal treated itself as unpaired and called
+  `/api/devices/register`, which resets `devices.patient_id`, so the next pairing would have created a SECOND patient.
+- Smallest design chosen: one table (`caregiver_sessions`, jti rows + legacy denylist rows) + one column (`left_at`).
+  Revocation check cached in memory (single instance).
+
+### Done
+- **Migration `010_sessions_logout.sql`** (additive: new table + index, new nullable column): `caregiver_sessions` (id = jti or
+  `legacy:<sha256>`, caregiver_id, patient_id NULL = login, created_at, expires_at, revoked_at), `patient_caregivers.left_at`.
+- `services/sessionService.js`: `issueCaregiverToken` (jti + row before the token is returned; pairing and login),
+  `verifyCaregiverToken` / `isSessionActive` (cached: revoked until exp, valid 30 s; a jti without a row is refused; legacy
+  tokens without a row are valid), `revokeSession` (idempotent upsert), `activeSessionSql`, `tokenLifetimeMs`.
+- `middleware/auth.js`: revocation checked on every caregiver route (401 `session_revoked` / `invalid_token`; DB down → 503
+  `auth_unavailable`); `authenticateForLogout` accepts a signed token even if expired or revoked.
+- `POST /api/auth/logout` (`authController.logout`, `services/logoutService.js`): revoke → leave the teams in scope with no
+  other active session → `session:revoked` + `disconnectSockets(true)` on `session:{jti}` → `caregiver:updated` → audit
+  `caregiver.logout` (first call only). Idempotent 200, 10/min/IP.
+- Socket handshake: `verifyCaregiverToken`; revoked/invalid JWT with no device token → connect_error `data.code`; caregiver sockets join `session:{jti}`.
+- `left_at IS NULL` in `memberSql`, `caregiverSummary` (count + name) and `patientsOfCaregiver`; `addToCareTeam` clears `left_at`.
+- Stale job `startStaleCleanup(io)` (hourly + once at start-up, `runStaleCleanup` joins a pass in progress), started in `index.js`.
+- Terminal: the reconcile uses `fromServer(body)` (count 0 → buttons); `caregiver:updated` count 0 clears the code (next press
+  asks for a fresh one); `Home.jsx` closes the popup when Connected → buttons; `lib/terminalApi.js` `requestPairingCode` asks
+  `/api/device/pairing-code` whenever there is a device token and registers only on 401.
+- Portal: `portal/logout.js` (logOut, one offline retry, sessionEnded, notices); Settings confirm text + spinner; `portalApi` 401
+  and `usePortalSocket` (`session_revoked` / `invalid_token` / `session:revoked`) → /portal/pair with "You've been logged out";
+  `Pair.jsx` shows the notice once; `PortalApp` starts the retry. i18n en + id.
+
+### Verification
+- `server`: `npm test` → 492 passed, 21 skipped (new `logout-f.test.js`, 28 tests, stateful fake DB: jti issued, 401 on REST and
+  socket after logout (also without the cache), legacy token denylist, cache, 503 fail closed, login session, left + count 0 events,
+  two caregivers (one leaves → the other's name, last leaves → 0), other session keeps membership, socket disconnect, idempotent +
+  audited once, expired token accepted / forged refused, nothing deleted, login token leaves all teams, rate limit, re-pairing
+  joins the SAME patient (no INSERT INTO patients) and the terminal gets count 1, cleanup (expired/revoked, legacy after one
+  lifetime, no-op, serialized, failures logged, hourly + start-up)).
+- Real Postgres (`DATABASE_URL`, ONE transaction, ROLLBACK, nothing kept): migration 010 runs twice (idempotent); issue, verify,
+  logout (revoked + left), revoked row refused without the cache, second logout no-op, count 2 → 1, left member gets 403, legacy
+  denylist, cleanup of an expired session, re-pair clears left_at: 13/13 PASS.
+  **Side effect to expect on deploy:** on that database the first cleanup pass would mark **20 existing memberships** as left
+  (paired more than 24 h ago with pre-010 tokens, which have all expired). Those tablets show the connect buttons until someone pairs
+  again (same patient; notes kept).
+- `client`: `npm test` → 193 passed (new `logoutFlow.test.js`, `terminalLogout.test.js`; header logout sequence; i18n keys);
+  `npm run build` OK.
+- **Not verified:** a real phone + tablet logout end to end, the offline retry on a real phone, `npm run check:layout` for the
+  pair-screen notice.
+
+---
+
 ## Known bugs / open items
 1. **Run `npm run db:seed`** and smoke-test the 3b endpoints (migrate 001–004 has now run against `DATABASE_URL`). (CLAUDE.md says
    `db:migrate`; the script is named `migrate`.)
@@ -1153,6 +1217,8 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 ---
 
 ## NEXT
+- Part F: log out on a real phone and watch the tablet's chip go back to the buttons; pair again (same patient); try the
+  offline Log Out (airplane mode) and the retry when back online.
 - Fix the debug overlay crash: pressing ~ (or `?dev=1`) on the terminal throws `replyMeta is not defined` (`App.jsx`:
   `DebugOverlay replyMeta={replyMeta}` inside `TerminalRoutes`, which never receives `replyMeta`), so the error boundary
   replaces the screen. Pre-existing; found during the 2026-10-24 checks, not fixed (out of scope).

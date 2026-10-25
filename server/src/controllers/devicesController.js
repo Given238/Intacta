@@ -13,13 +13,13 @@
  */
 
 const crypto  = require('crypto');
-const jwt     = require('jsonwebtoken');
 const { query } = require('../db/query');
 const { loadContextSnapshot, buildContextSync, terminalContext } = require('../services/contextService');
 const { getSettings, buildSettingsSync } = require('../services/settingsService');
 const { pairWithCode, hashCode, PairingError } = require('../services/pairingService');
 const { logAudit } = require('../services/audit');
 const { caregiverSummary, emitCaregiverUpdated } = require('../services/careTeamService');
+const { issueCaregiverToken } = require('../services/sessionService');
 
 const CODE_CHARS    = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I, O, 0, 1 — avoids confusion
 const CODE_LENGTH   = 6;
@@ -138,6 +138,15 @@ async function pairDevice(req, res) {
     payload: { device_id: deviceId, patient_id: patientId, created_patient: createdPatient, joined_existing: joinedExisting },
   });
 
+  // Caregiver JWT scoped to this patient, with its own session (logout revokes it)
+  let authToken;
+  try {
+    authToken = await issueCaregiverToken({ caregiverId, patientId });
+  } catch (err) {
+    console.error('pairDevice session error:', err.code || err.name, err.message);
+    return res.status(500).json({ error: 'Pairing failed', code: 'pair_failed' });
+  }
+
   // Move the connected terminal into the patient room, then notify it.
   // Emits are best-effort: the device is linked, and the terminal re-syncs on reconnect.
   const io = req.app.get('io');
@@ -161,13 +170,6 @@ async function pairDevice(req, res) {
       console.error('pairDevice sync emit failed:', err.message);
     }
   }
-
-  // Caregiver JWT scoped to this patient
-  const authToken = jwt.sign(
-    { caregiverId, patientId },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
-  );
 
   return res.json({
     success:     true,

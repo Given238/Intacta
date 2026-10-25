@@ -93,6 +93,7 @@ describe('Socket.IO dual auth and room joins', () => {
   it('accepts a caregiver JWT', async () => {
     const jwt = require('jsonwebtoken');
     const { mw } = boot();
+    routeQueries([[/FROM caregiver_sessions/, []]]); // a pre-010 token (no jti) with no revoked row
     const socket = makeSocket({ token: jwt.sign({ caregiverId: 7 }, process.env.JWT_SECRET) });
     const next = jest.fn();
     await mw(socket, next);

@@ -25,6 +25,7 @@ import Patient     from './pages/Patient'
 import Routines    from './pages/Routines'
 import Settings    from './pages/Settings'
 import { getSession } from './session'
+import { startLogoutRetry } from './logout'
 
 function RequireSession() {
   return getSession() ? <Outlet /> : <Navigate to="/portal/pair" replace />
@@ -76,6 +77,8 @@ function PortalShell() {
 }
 
 export default function PortalApp() {
+  // A Log Out that couldn't reach the server is sent once when the network is back
+  useEffect(() => startLogoutRetry(), [])
   return (
     <BrowserRouter>
       <div className="portal h-full bg-canvas">

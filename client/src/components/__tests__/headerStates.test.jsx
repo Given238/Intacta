@@ -81,6 +81,16 @@ describe('terminal header', () => {
     expect(conn.loadConnection()).toBe(conn.UNPAIRED)
   })
 
+  it('logout sequence: "Budi +1" → Budi logs out → "Rina" → Rina logs out → the two buttons', () => {
+    expect(visible(render(conn.fromServer({ name: 'Budi Santoso', count: 2 })))).toContain('Connected · Budi +1')
+    expect(visible(render(conn.fromServer({ name: 'Rina', count: 1 })))).toContain('Connected · Rina')
+    const html = render(conn.fromServer({ name: null, count: 0 }))
+    expect(layerHidden(html, 'connect-actions')).toBe(false)
+    expect(html).toContain('Enable caregiver connection')
+    expect(html).toContain('Authentication code')
+    expect(html).not.toContain('data-testid="connected-chip"')
+  })
+
   it('the chip has no click action (a tap does nothing); only the 3 s hold handlers', () => {
     const html = render(conn.fromServer({ name: 'Budi', count: 1 }), { onChipHold: () => {} })
     const chip = html.match(/<div[^>]*data-testid="connected-chip"[^>]*>/)[0]

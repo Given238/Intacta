@@ -5,7 +5,6 @@
  * Caregiver sockets load their patients and join patient:{id} rooms.
  */
 
-const jwt    = require('jsonwebtoken');
 const { query } = require('../db/query');
 const { patientAccess, ACCESS_ERRORS, memberSql } = require('../services/ownership');
 const { buildContextSync, loadContextSnapshot } = require('../services/contextService');
@@ -15,6 +14,14 @@ const { logInteraction } = require('../llm/interactionLogger');
 const { deliverPending } = require('../services/routineScheduler');
 const { screenOrRefuse } = require('../services/safetyGate');
 const { caregiverSummary, emitForCaregiver, setRescreenListener } = require('../services/careTeamService');
+const { verifyCaregiverToken } = require('../services/sessionService');
+
+/** connect_error for the client: err.message + err.data.code (invalid_token | session_revoked | auth_unavailable). */
+function authError(message, code) {
+  const err = new Error(message);
+  err.data = { code };
+  return err;
+}
 
 function setupSocket(io) {
   // A caregiver name that passed its re-screen can now be shown: tell the terminals and portals
@@ -22,22 +29,31 @@ function setupSocket(io) {
 
   // ── Dual-auth handshake middleware ─────────────────────────────────────────
   io.use(async (socket, next) => {
-    // 1. Try caregiver JWT
+    // 1. Try caregiver JWT (signature, expiry, and not revoked by a logout)
     const jwtToken = socket.handshake.auth?.token;
+    let jwtFailure = null;
     if (jwtToken) {
+      let session;
       try {
-        const payload = jwt.verify(jwtToken, process.env.JWT_SECRET);
-        socket.caregiverId = payload.caregiverId;
+        session = await verifyCaregiverToken(jwtToken);
+      } catch (err) {
+        console.error('Socket session check error:', err.message);
+        return next(authError('Authentication error: server error', 'auth_unavailable'));
+      }
+      if (session.ok) {
+        socket.caregiverId = session.caregiverId;
+        socket.sessionId = session.sessionId;
         socket.authType = 'caregiver';
         return next();
-      } catch {
-        // fall through to device token
       }
+      jwtFailure = session.code; // fall through to a device token, if any
     }
 
     // 2. Fall back to device token
     const deviceToken = socket.handshake.auth?.deviceToken || socket.handshake.auth?.device_token;
     if (!deviceToken) {
+      if (jwtFailure === 'session_revoked') return next(authError('Authentication error: session revoked', jwtFailure));
+      if (jwtFailure) return next(authError('Authentication error: invalid token', jwtFailure));
       return next(new Error('Authentication error: token missing'));
     }
 
@@ -74,6 +90,8 @@ function setupSocket(io) {
     if (type === 'caregiver') {
       // ── Caregiver: load their patients and join rooms ─────────────────────
       console.log(`Socket connected: ${socket.id} (caregiver ${socket.caregiverId})`);
+      // A logout of this session disconnects every socket in this room
+      socket.join(`session:${socket.sessionId}`);
       // Register handlers before any await: events sent right after connect would otherwise be dropped
       socket.on('broadcast:message', handleBroadcast(io, socket));
       socket.on('voice:test', handleVoiceTest(io, socket));

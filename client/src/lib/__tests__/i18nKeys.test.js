@@ -28,6 +28,9 @@ const REQUIRED = [
   'portal.scan.close', 'portal.scan.typeInstead', 'portal.scan.torchOn', 'portal.scan.torchOff',
   'portal.scan.errors.denied', 'portal.scan.errors.noCamera', 'portal.scan.errors.insecure',
   'portal.scan.errors.unsupported', 'portal.scan.errors.error',
+  // Part F: Log Out (server logout, offline notice, "you've been logged out")
+  'portal.settings.account.logout', 'portal.settings.account.logoutTitle', 'portal.settings.account.logoutBody',
+  'portal.settings.account.loggingOut', 'portal.pair.loggedOut', 'portal.pair.loggedOutOffline',
 ]
 
 describe('i18n dictionaries', () => {

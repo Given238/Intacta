@@ -7,7 +7,7 @@ import './index.css'
 import { useSocket } from './hooks/useSocket'
 import { useReplyLifecycle } from './hooks/useReplyLifecycle'
 import { useVoiceLoop } from './hooks/useVoiceLoop'
-import { terminalFetch } from './lib/terminalApi'
+import { terminalFetch, requestPairingCode } from './lib/terminalApi'
 import { replyTextOf } from './lib/replyLifecycle'
 import { speak, unlockAudio } from './lib/speaker'
 import { requestMic } from './lib/voiceInput'
@@ -20,7 +20,6 @@ import Pairing   from './pages/Pairing'
 import TerminalStage from './components/TerminalStage'
 import Header from './components/Header'
 
-const API = import.meta.env.VITE_API_URL || ''
 
 /* ?dev=1 pins the typed input + debug overlay open (tablet has no keyboard).
    Read once at load, before the catch-all redirect drops the query string. */
@@ -70,8 +69,6 @@ export default function App({ boot = null }) {
   // Header chip "Connected · {name}": last known state first (no flash of the buttons), then the server's
   const [connection, setConnection] = useState(loadConnection)
   const [pairedTick, setPairedTick] = useState(0) // +1 on every device:paired (closes the popup)
-  const connectionRef = useRef(connection)
-  connectionRef.current = connection
   const navigateRef = useRef(null)
 
   const { socket } = useSocket(deviceToken)
@@ -82,8 +79,9 @@ export default function App({ boot = null }) {
   useEffect(() => {
     if (!deviceToken) { setConnection(UNPAIRED); return }
     let live = true
+    // The header follows the server's ACTIVE care team: a paired device whose caregivers all logged out shows the buttons
     terminalFetch('/api/device/context')
-      .then(body => { if (live) setConnection(fromServer(body, { paired: true })) })
+      .then(body => { if (live) setConnection(fromServer(body)) })
       .catch(e => {
         if (!live) return
         if (e.status === 401 || e.status === 404) setConnection(UNPAIRED) // not paired (any more)
@@ -183,38 +181,18 @@ export default function App({ boot = null }) {
     return () => { live = false }
   }, [boot])
 
-  /* ── Pairing code: register (unpaired) or a fresh code that keeps the pairing (paired: another caregiver) ── */
+  /* ── Pairing code: keeps the patient link when there is one (requestPairingCode), else registers ── */
   const handleRegisterDevice = useCallback(async () => {
     setRegLoading(true)
     setRegError(null)
     const deviceId = localStorage.getItem('device_id') || crypto.randomUUID()
     localStorage.setItem('device_id', deviceId)
     try {
-      if (connectionRef.current.paired) {
-        const data = await terminalFetch('/api/device/pairing-code', { method: 'POST' })
-        setPairingCode(data.code)
-        const exp = Date.parse(data.expires_at)
-        setPairingExpiresAt(Number.isFinite(exp) ? exp : null)
-        return
-      }
-      let res
-      try {
-        res = await fetch(`${API}/api/devices/register`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ device_id: deviceId }),
-        })
-      } catch (netErr) {
-        throw new Error(`register failed: network (${netErr.message})`)
-      }
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(`register failed: ${res.status}${err.code || err.error ? ` (${err.code || err.error})` : ''}`)
-      }
-      const data = await res.json()
+      const data = await requestPairingCode(deviceId)
       setPairingCode(data.code)
       const exp = Date.parse(data.expires_at)
       setPairingExpiresAt(Number.isFinite(exp) ? exp : null)
+      if (!data.device_token) return // the patient link was kept
       localStorage.setItem('device_token', data.device_token)
       setDeviceToken(data.device_token)
       setConnection(UNPAIRED) // registering resets the pairing on the server
@@ -246,8 +224,16 @@ export default function App({ boot = null }) {
       setPairedTick(n => n + 1)
       setPairingCode(null)
     }
-    // Name edited in Settings, another caregiver paired, or the state on (re)connect; count 0 = not paired
-    const onCaregiver = (payload = {}) => setConnection(fromServer(payload))
+    // Name edited in Settings, another caregiver paired or logged out, or the state on (re)connect.
+    // count 0 = nobody connected: the buttons return and the next press asks for a fresh code
+    const onCaregiver = (payload = {}) => {
+      const next = fromServer(payload)
+      if (!next.paired) {
+        setPairingCode(null)
+        setPairingExpiresAt(null)
+      }
+      setConnection(next)
+    }
     socket.on('device:paired', onPair)
     socket.on('caregiver:updated', onCaregiver)
     return () => {

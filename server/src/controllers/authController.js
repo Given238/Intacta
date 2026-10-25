@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
-const jwt    = require('jsonwebtoken');
 const { query } = require('../db/query');
+const { issueCaregiverToken } = require('../services/sessionService');
+const { logoutSession } = require('../services/logoutService');
 
 async function login(req, res) {
   const { email, password } = req.body;
@@ -23,11 +24,8 @@ async function login(req, res) {
   if (!valid) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
-  const token = jwt.sign(
-    { caregiverId: caregiver.id },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN }
-  );
+  // Not scoped to a patient: the session covers every patient of this caregiver
+  const token = await issueCaregiverToken({ caregiverId: caregiver.id });
   return res.json({ token });
 }
 
@@ -51,4 +49,37 @@ async function register(req, res) {
   return res.status(201).json({ caregiver: result.rows[0] });
 }
 
-module.exports = { login, register };
+const LOGOUT_LIMIT = 10;          // per IP
+const LOGOUT_WINDOW_MS = 60_000;  // per minute
+const logoutRate = new Map();     // ip → { count, windowStart }
+
+function takeLogoutSlot(ip, now = Date.now()) {
+  const entry = logoutRate.get(ip);
+  if (!entry || now - entry.windowStart > LOGOUT_WINDOW_MS) {
+    logoutRate.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= LOGOUT_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+/**
+ * POST /api/auth/logout (caregiver JWT, may already be expired or revoked): revoke this session, leave the care team
+ * when no other session is active, disconnect its sockets, tell the terminal. Idempotent: always 200 once accepted.
+ */
+async function logout(req, res) {
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  if (!takeLogoutSlot(ip)) {
+    return res.status(429).json({ error: 'Too many requests. Wait 1 minute.', code: 'rate_limited' });
+  }
+  try {
+    const { revoked, left } = await logoutSession(req.app.get('io'), req.session);
+    return res.json({ success: true, already_logged_out: !revoked, left_patients: left });
+  } catch (err) {
+    console.error('logout error:', err.code || err.name, err.message);
+    return res.status(500).json({ error: 'Logout failed', code: 'logout_failed' });
+  }
+}
+
+module.exports = { login, register, logout };

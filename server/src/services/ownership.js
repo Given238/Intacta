@@ -7,9 +7,10 @@
 
 const { query } = require('../db/query');
 
-/** SQL: true when caregiver `caregiverParam` is on the care team of patient `patientExpr` (owner not included). */
+/** SQL: true when caregiver `caregiverParam` is an active member of patient `patientExpr`'s care team (owner not
+ *  included; a member who left, migration 010, is not). */
 const memberSql = (patientExpr, caregiverParam) =>
-  `EXISTS (SELECT 1 FROM patient_caregivers pc WHERE pc.patient_id = ${patientExpr} AND pc.caregiver_id = ${caregiverParam})`;
+  `EXISTS (SELECT 1 FROM patient_caregivers pc WHERE pc.patient_id = ${patientExpr} AND pc.caregiver_id = ${caregiverParam} AND pc.left_at IS NULL)`;
 
 /** A row with caregiver_id (the owner) and is_member (memberSql) → may this caregiver access it? */
 const onCareTeam = (row, caregiverId) => row.caregiver_id === caregiverId || row.is_member === true;

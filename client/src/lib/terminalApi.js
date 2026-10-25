@@ -44,3 +44,34 @@ export async function terminalFetch(path, { headers, ...options } = {}) {
 
   return res.status === 204 ? null : res.json()
 }
+
+/**
+ * A pairing code for the "Connect a caregiver" popup.
+ * A device linked to a patient (also when every caregiver has logged out) gets a fresh code that KEEPS the link, so
+ * the next caregiver joins the same patient: POST /api/device/pairing-code → {code, expires_at}. Only a device with
+ * no patient (401 there, or no token yet) registers, which resets the pairing: → {code, expires_at, device_token}.
+ */
+export async function requestPairingCode(deviceId, { fetchImpl = fetch } = {}) {
+  if (localStorage.getItem('device_token')) {
+    try {
+      return await terminalFetch('/api/device/pairing-code', { method: 'POST' })
+    } catch (e) {
+      if (e.status !== 401) throw e // not linked to a patient → register below
+    }
+  }
+  let res
+  try {
+    res = await fetchImpl(`${API}/api/devices/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id: deviceId }),
+    })
+  } catch (netErr) {
+    throw new Error(`register failed: network (${netErr.message})`)
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`register failed: ${res.status}${err.code || err.error ? ` (${err.code || err.error})` : ''}`)
+  }
+  return res.json()
+}
