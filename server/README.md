@@ -46,8 +46,9 @@
                      ┌────────────────────┘               └────────────────────┐
                      ▼                                                         ▼
     ┌─────────────────────────────────┐                       ┌─────────────────────────────────┐
-    │          PostgreSQL DB          │                       │     LangChain + Gemini 2.5      │
-    │ (Context, Routines, Audit Logs) │                       │     (Validation Therapy)      │
+    │          PostgreSQL DB          │                       │     LangChain + Gemini 3.5      │
+    │ (Context, Routines, Audit Logs) │                       │     (Validation Therapy)
+    │                                                               + OpenAI GPT 5.5(fallback + safety check)
     └─────────────────────────────────┘                       └────────────────┬────────────────┘
                                                                                │
                                                                        Audio Stream (TTS)
