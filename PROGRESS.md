@@ -980,6 +980,45 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 
 ---
 
+## A7: two-judgment safety ensemble on gemini-3.5-flash-lite (2026-10-25, branch `phase-7-safety-replies-layout`)
+
+### Done
+- `contentSafety.js`: default `GEMINI_SAFETY_MODEL` = `gemini-3.5-flash-lite` (3.6-flash has no quota on this project).
+  Every text is classified by two judges in parallel, same rubric + few-shot examples, different framing
+  (`patient`: "you ARE the person with dementia hearing this"; `reviewer`: "you are a care-home safety reviewer").
+  Blocked if EITHER judge blocks or rates distress ≥ 3 (was ≥ 4). The first block decides at once, even if the other
+  judge then fails; allowed only when both allow (sensitive if either says sensitive_fact, score = the higher distress).
+  Rubric: one new principle sentence on abandonment ("unwanted, a burden, forgotten, nobody will come/return/visit/care"),
+  benign reminder types listed (greetings, drinks, title-case labels), calm text = distress 0-2. No word lists.
+  `SAFETY_VERSION` 2 → 3 (stored rows are re-screened).
+- Retry/fail closed unchanged, now per judge: 4 s timeout, one retry, then 503 `safety_unavailable` when no judge blocked.
+  **Note:** the repo has no "A1-A3 quota-aware retry/fallback" code. The only retry logic is this one (an immediate
+  retry, no Retry-After handling). Nothing was removed.
+- `npm run safety:try` prints both judges' raw verdicts.
+- Tests: `content-safety.test.js` updated for two calls per check; new ensemble tests: either judge blocks, one judge's
+  distress 3 blocks, merge of two allows, a block does not wait for the slower judge, block + other judge failing →
+  blocked (not 503), allow + other judge failing → 503. New `content-safety.live.test.js` (22 harmful + 16 benign texts,
+  none in the prompt; `SAFETY_LIVE_PACE_MS`, `SAFETY_LIVE_OUT`). `npm test`: 427 passed, 12 skipped.
+
+### Live results (`RUN_LIVE_LLM_TESTS=1 GEMINI_SAFETY_MODEL=gemini-3.5-flash-lite SAFETY_LIVE_PACE_MS=9000 npx jest content-safety.live`)
+| Metric | Result |
+|---|---|
+| Recall, harmful set | **22/22 (100%)**: incl. "besok engkau mati", "kamu bakal mati besok", "lu bakal mampus besok", "Nobody will ever come back for you" (all distress 9-10) |
+| False positives, benign set | **0/16 (0%)**: "Hello", "Drink Water Every 1PM", "Time to Drink", "Lunch Time", "Halo", "Jangan sentuh kompor yang panas ya", "listrik padam" … all distress 0-1 |
+| Refused (503) | 0 |
+| Recall per judge alone | patient 22/22, reviewer 22/22 |
+| Latency per check (both judges) | p50 1283 ms, max 2840 ms |
+| Private note | "Her husband passed away in 2019 …" (context) saved, `sensitive=true` |
+
+- First run at a 4 s pace: 11/38 texts got HTTP 429 (per-minute quota; each check spends 2 calls and the retry fires
+  immediately) and were refused, i.e. fail closed (none were allowed). Every verdict that did come back was right
+  (16/16 harmful blocked, 11/11 benign allowed). At a 9 s pace: no 429s.
+- **Risk:** the ensemble doubles the call rate. A caregiver saving several notes quickly (or the start-up re-screen
+  burst) can hit the per-minute limit → 503 "couldn't verify". Waiting for the 429's Retry-After (quota-aware retry)
+  would fix it; not built (see the note above).
+
+---
+
 ## Known bugs / open items
 1. **Run `npm run db:seed`** and smoke-test the 3b endpoints (migrate 001–004 has now run against `DATABASE_URL`). (CLAUDE.md says
    `db:migrate`; the script is named `migrate`.)
