@@ -6,10 +6,12 @@
  *   Throws SafetyUnavailableError (code 'safety_unavailable') when no verdict can be obtained: FAIL CLOSED.
  *
  * The ONLY decision-maker is a Gemini classifier (temperature 0, structured JSON, GEMINI_SAFETY_MODEL) that judges
- * meaning against a rubric. There are no word lists. Before the call the text only gets technical hygiene:
+ * meaning against a rubric. There are no word lists. Every text gets TWO independent judgments with different framings
+ * (the vulnerable patient hearing it, a care-home safety reviewer); it is blocked if EITHER blocks.
+ * Before the call the text only gets technical hygiene:
  * Unicode NFKC, control / invisible characters stripped, whitespace collapsed, trimmed, max 300 characters.
- * A timeout (4 s), an API error, invalid JSON or a missing key is retried once, then the text is refused (503).
- * Verdicts are cached by hash of (normalised text + kind + language + SAFETY_VERSION).
+ * A timeout (4 s), an API error, invalid JSON or a missing key is retried once per judge; if a judge still has no
+ * verdict and the other did not block, the text is refused (503). Verdicts are cached by hash of (normalised text + kind + language + SAFETY_VERSION).
  * The checked text is never logged.
  */
 
@@ -25,9 +27,10 @@ const CATEGORIES = [
 const MAX_LENGTH = 300;
 const CLASSIFIER_TIMEOUT_MS = 4000;
 const CLASSIFIER_ATTEMPTS = 2;      // one automatic retry
-const DISTRESS_BLOCK = 4;           // patient_distress_0_to_10 at or above this blocks
-const SAFETY_VERSION = 2;           // bump when the rubric, threshold or model changes: stored rows are re-screened
-const DEFAULT_SAFETY_MODEL = 'gemini-3.6-flash'; // strongest non-lite flash that answers on this key (see CLAUDE.md)
+const DISTRESS_BLOCK = 3;           // patient_distress_0_to_10 at or above this (from either judge) blocks
+const SAFETY_VERSION = 3;           // bump when the rubric, threshold or model changes: stored rows are re-screened
+const DEFAULT_SAFETY_MODEL = 'gemini-3.5-flash-lite'; // the stronger flash models have no quota on this project (see CLAUDE.md)
+const JUDGES = ['patient', 'reviewer']; // independent framings of the same rubric
 const CACHE_MAX = 500;
 
 class SafetyUnavailableError extends Error {
@@ -61,11 +64,18 @@ const KIND_ROLE = {
   reply:      'kind=reply: a reply the assistant is about to say to the person.',
 };
 
-const RUBRIC = `You protect a person with dementia who lives at home. Imagine you are that person, alone, and this text is said to you in a caring voice or influences what the assistant tells you. Judge MEANING in any language, dialect, slang, misspelling, metaphor or implication (Indonesian and English).
+// Each judge looks at the text from a different seat; both apply the same rubric.
+const FRAMINGS = {
+  patient: `You ARE a person with dementia who lives at home: frail, often confused, easily frightened, and alone right now. This text is said to you in a caring voice, or it shapes what your assistant tells you. You take words literally and cannot tell a joke or a casual tone from a real threat. Ask yourself: would hearing this frighten, hurt, shame, abandon or endanger me? Rate how you would feel.`,
+  reviewer: `You are a care-home safety reviewer. Before any text reaches a resident with dementia you decide whether a careful clinician would ever let that resident hear it, or let it shape what the assistant says to them. Casual, joking, slangy, misspelled or indirect phrasing does not make harm acceptable: judge what a vulnerable resident would understand. Calm everyday information, greetings and reminders are exactly what residents should hear, so allow those without hesitation.`,
+};
+
+const RUBRIC = `Judge MEANING in any language, dialect, slang, misspelling, metaphor or implication (Indonesian and English).
 Block anything that threatens, predicts or wishes harm or death on the person, announces dangers or catastrophes as coming, frightens, shames, insults, abandons, deceives to scare or to make them do something unsafe, or is sexual or abusive. Statements about the future that are harmful ('tomorrow you will ...') count as threats even when they sound casual.
-Allow calm, true, helpful information: visitors, meals, appointments, safety reminders ('don't touch the stove'), preferences, family facts.
+Telling the person that they are unwanted, a burden or forgotten, or that nobody will come, return, visit or care for them, is abandonment even with no threat in it.
+Allow calm, true, helpful information: greetings, visitors, meals, drinks, medicines at their usual time, appointments, safety reminders ('don't touch the stove'), preferences, family facts. Short commands and title-case labels are normal for reminders.
 A distressing but factual caregiver note (e.g. a death in the family) is category sensitive_fact: allowed ONLY for kind=context, never for text that is spoken aloud. sensitive_fact is only for a true past or present fact written for the assistant; anything that predicts, threatens or wishes harm is never sensitive_fact.
-Give patient_distress_0_to_10 for how the patient would feel hearing it (0 calm, 10 terrified).`;
+Give patient_distress_0_to_10 for how the patient would feel hearing it (0 calm, 10 terrified); calm everyday text is 0-2.`;
 
 const FIELDS = `Fields:
 - reason_short: why, in English, at most 15 words.
@@ -90,9 +100,10 @@ const EXAMPLES = `Examples (learn the reasoning, not the words):
 11. "Her brother passed away last spring; she has not been told" (context) → allow, sensitive_fact, spoken_aloud_ok false: true background for the assistant. The same text as a broadcast → block.
 12. "Grandma loves old movies and the smell of rain" (context) → allow, none, distress 0: a preference.`;
 
-function classifierPrompt(text, { language, kind }) {
+function classifierPrompt(text, { language, kind, framing = 'patient' }) {
   const lang = language === 'id' ? 'Indonesian' : language === 'en' ? 'English' : 'Indonesian or English';
   return [
+    FRAMINGS[framing] || FRAMINGS.patient,
     RUBRIC,
     FIELDS,
     EXAMPLES,
@@ -211,17 +222,54 @@ async function classify(text, opts) {
     } catch (err) {
       last = err;
       if (err instanceof SafetyUnavailableError) break; // missing key: a retry cannot help
-      warn(`classifier attempt ${attempt} failed (${String(err?.message || err).slice(0, 160)}) kind=${opts.kind}`);
+      warn(`classifier attempt ${attempt} failed (${String(err?.message || err).slice(0, 160)}) kind=${opts.kind} judge=${opts.framing}`);
     }
   }
-  warn(`classifier unavailable, text refused (kind=${opts.kind})`);
+  warn(`classifier unavailable (kind=${opts.kind} judge=${opts.framing})`);
   throw last instanceof SafetyUnavailableError ? last : new SafetyUnavailableError(String(last?.message || last));
 }
+
+/**
+ * Both judges in parallel; the stricter result wins. The first block decides at once, without waiting for the other
+ * judge (and even when it fails). No block and a judge without a verdict → refused (fail closed). Two allows →
+ * allowed, sensitive if either judge marked it so, score = the higher distress.
+ */
+function judge(text, opts) {
+  return new Promise((resolve, reject) => {
+    const allowed = [];
+    let failure;
+    let pending = JUDGES.length;
+    let done = false;
+    const finish = (fn, value) => { if (!done) { done = true; fn(value); } };
+    for (const framing of JUDGES) {
+      classify(text, { ...opts, framing })
+        .then((verdict) => {
+          const decision = decide(verdict, opts.kind);
+          if (!decision.ok) finish(resolve, withoutVerdict(decision));
+          else allowed.push(decision);
+        }, (err) => { failure = failure || err; })
+        .finally(() => {
+          if (--pending > 0 || done) return;
+          if (failure) {
+            warn(`text refused (kind=${opts.kind})`);
+            return finish(reject, failure);
+          }
+          finish(resolve, {
+            ok: true, category: null, reason: null,
+            sensitive: allowed.some(d => d.sensitive),
+            score: Math.max(...allowed.map(d => d.score)),
+          });
+        });
+    }
+  });
+}
+
+const withoutVerdict = ({ verdict: _v, ...result }) => result;
 
 // ── Decision ──────────────────────────────────────────────────────────────────
 
 /**
- * Block when decision = block OR distress ≥ 4. Spoken kinds also block when spoken_aloud_ok = false or
+ * One judge's verdict. Block when decision = block OR distress ≥ 3. Spoken kinds also block when spoken_aloud_ok = false or
  * category = sensitive_fact. For kind=context a sensitive_fact that is not addressed to the patient is saved,
  * marked sensitive (the assistant never mentions it).
  */
@@ -266,13 +314,12 @@ async function checkPatientFacingText(text, { language, kind = 'broadcast' } = {
   if (clean.length > MAX_LENGTH) return { ok: false, category: 'other', reason: 'too_long', sensitive: false, score: null };
   if (!clean) return { ok: true, category: null, reason: null, sensitive: false, score: 0 };
   const key = cacheKey(clean, kind, language);
-  let verdict = cache.get(key);
-  if (!verdict) {
-    verdict = await classify(clean, { language, kind });
-    remember(key, verdict);
+  let result = cache.get(key); // the combined decision of both judges
+  if (!result) {
+    result = await judge(clean, { language, kind });
+    remember(key, result);
   }
-  const { verdict: _v, ...result } = decide(verdict, kind);
-  return result;
+  return { ...result };
 }
 
 /**
@@ -304,7 +351,7 @@ function storedVerdict(result) {
 }
 
 module.exports = {
-  KINDS, SPOKEN_KINDS, CATEGORIES, MAX_LENGTH, CLASSIFIER_TIMEOUT_MS, DISTRESS_BLOCK, SAFETY_VERSION, DEFAULT_SAFETY_MODEL,
+  KINDS, SPOKEN_KINDS, CATEGORIES, MAX_LENGTH, CLASSIFIER_TIMEOUT_MS, DISTRESS_BLOCK, SAFETY_VERSION, DEFAULT_SAFETY_MODEL, JUDGES,
   SafetyUnavailableError, sanitize, classifierPrompt, decide, checkPatientFacingText, checkFields, storedVerdict,
   setClassifier, geminiClassifier, safetyModel,
 };

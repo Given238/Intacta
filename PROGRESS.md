@@ -1,6 +1,6 @@
 # Intacta — Progress Status
 
-Last updated: 2026-10-24
+Last updated: 2026-10-25
 Branch: `phase-7-safety-replies-layout` (local commits only; see "Content safety gate fix")
 
 ---
@@ -1043,7 +1043,7 @@ and `factuality.test.js` live cases behind `RUN_LIVE_LLM_TESTS=1` (not run: the 
 - Decide: server-side check that a reassure note is about the patient's topic (prompt-only fixes did not stop off-topic notes, see Part B re-run).
 - The <10% fallback target at the configured budget needs a stable network (or a decision on FR-4.3.2 / the model).
 - Decide FR-4.3.2: keep the 2500 ms + 2 s ladder or restore 1.2 s (see Part B).
-- Re-run the live Tier 2 safety check once the Gemini API is reachable at normal speed (see Part A).
+- Decide: quota-aware retry (honour the 429 Retry-After) for the safety ensemble, or billing (see "A7").
 - Tablet test of Parts A–C (lists under "Voice and routines"); restart `npm run dev` first so `/vad/` assets are served.
 - Delete spurious routine "missed" rows 50 and 51 if patients 7 / 13 are real (see Part C side effects).
 - Decide on STT latency (Gemini audio 1.4–2.5 s vs the 800 ms target): accept, or move to a streaming STT.

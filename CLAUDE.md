@@ -71,12 +71,15 @@ ALL patient-facing LLM output:
   against a rubric with 10-12 few-shot examples (principles, never a list to match). Before the call only technical hygiene:
   NFKC, control/invisible characters stripped, whitespace collapsed, trim, max 300 chars. Temperature 0, structured JSON
   `{decision, category, addressed_to_patient, patient_distress_0_to_10, spoken_aloud_ok, reason_short}`, REST call from the server.
-- Model: `GEMINI_SAFETY_MODEL`, default `gemini-3.6-flash` (chosen 2026-10-23 from the key's model list: the strongest non-lite
-  flash that answers; 3.7/3.8-flash were overloaded or never answered, 2.5-flash is 404; never the lite reply model).
-  Lowest thinking level the model accepts (`minimal` for 3.0-3.6, `low` for 3.7+).
+- Two-judgment ensemble: every text is classified twice in parallel with the same rubric and different framings
+  (`patient`: "you are the vulnerable patient hearing this"; `reviewer`: "you are a care-home safety reviewer"). Either judge
+  blocking blocks (the first block decides at once, even if the other judge fails); allowed only when BOTH allow; a judge with
+  no verdict (after its one retry) and no block → 503 (fail closed).
+- Model: `GEMINI_SAFETY_MODEL`, default `gemini-3.5-flash-lite` (2026-10-25: the stronger 3.6-flash has no quota on this
+  project; the ensemble compensates). Lowest thinking level the model accepts (`minimal` for 3.0-3.6, `low` for 3.7+).
 - Categories: threat_or_harm, death_or_harm_prediction, fear_inducing, abandonment_or_shaming, abuse_or_insult, sexual,
   harmful_instruction, sensitive_fact, other, none.
-- Block when decision=block OR distress ≥ 4. Spoken kinds (broadcast, routine, voice_test, reply) also block when
+- Block when either judge says decision=block OR distress ≥ 3. Spoken kinds (broadcast, routine, voice_test, reply) also block when
   spoken_aloud_ok=false or category=sensitive_fact. kind=context + sensitive_fact (not addressed to the patient) is SAVED with
   `sensitive=true`: never sent to the terminal, given to the LLM as a PRIVATE note it must never mention or hint at.
 - Bump `SAFETY_VERSION` whenever the rubric, threshold or model changes (stored rows are then re-screened).

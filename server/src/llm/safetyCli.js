@@ -1,7 +1,7 @@
 /**
  * CLI: npm run safety:try "<text>" -- --kind context|broadcast|routine|voice_test|reply --lang id|en
- * Diagnoses one content safety decision: the model, the raw classifier verdict (no timeout), any classifier
- * error, and the final gate result (4 s timeout, one retry, fail closed). Spends one to three Gemini calls.
+ * Diagnoses one content safety decision: the model, each judge's raw verdict (no timeout), any classifier
+ * error, and the final ensemble gate result (4 s timeout, one retry per judge, fail closed). Spends 2-6 Gemini calls.
  */
 
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
@@ -30,13 +30,16 @@ const redact = (s) => {
   console.log('model:', safety.safetyModel(), '| key set:', Boolean(process.env.GEMINI_API_KEY),
     '| kind:', kind, '| lang:', language, '| safety_version:', safety.SAFETY_VERSION);
   const clean = safety.sanitize(text);
-  let start = Date.now();
-  try {
-    const raw = await safety.geminiClassifier(clean, { language, kind }, undefined);
-    console.log(`raw classifier, no timeout (${Date.now() - start} ms):`, JSON.stringify(raw));
-    console.log('decision rule:', JSON.stringify((({ verdict: _v, ...r }) => r)(safety.decide(raw, kind))));
-  } catch (err) {
-    console.log(`raw classifier ERROR (${Date.now() - start} ms):`, redact(err.message).slice(0, 300));
+  let start;
+  for (const framing of safety.JUDGES) {
+    start = Date.now();
+    try {
+      const raw = await safety.geminiClassifier(clean, { language, kind, framing }, undefined);
+      console.log(`raw ${framing} judge, no timeout (${Date.now() - start} ms):`, JSON.stringify(raw));
+      console.log(`  decision rule (${framing}):`, JSON.stringify((({ verdict: _v, ...r }) => r)(safety.decide(raw, kind))));
+    } catch (err) {
+      console.log(`raw ${framing} judge ERROR (${Date.now() - start} ms):`, redact(err.message).slice(0, 300));
+    }
   }
   start = Date.now();
   try {
